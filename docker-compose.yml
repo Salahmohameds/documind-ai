@@ -1,0 +1,41 @@
+# DocuMind AI — local development stack (M0 / M1)
+
+# Infra tier is runnable today:
+#   docker compose up -d postgres redis
+#
+# Service images (api-gateway, document, processing, ai, search) are added
+# here in M1 as they get built. Keep this file infra-only until then.
+
+name: documind
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: documind-postgres
+    environment:
+      POSTGRES_DB: documind
+      POSTGRES_USER: documind
+      POSTGRES_PASSWORD: documind_dev_only   # local dev only — never in prod
+    ports:
+      - "5432:5432"
+    volumes:
+      - documind_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documind -d documind"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: documind-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  documind_pgdata:

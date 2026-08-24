@@ -1,0 +1,101 @@
+# CI — DocuMind AI (skeleton: safe on empty dirs, gates as code lands)
+
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-static:
+    name: Terraform fmt / validate / tflint / checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Terraform files
+        id: tf
+        run: |
+          if find terraform -name '*.tf' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Terraform files yet — skipping."
+          fi
+
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.tf.outputs.found == 'true'
+
+      - name: Terraform fmt
+        if: steps.tf.outputs.found == 'true'
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      - uses: terraform-linters/setup-tflint@v4
+        if: steps.tf.outputs.found == 'true'
+
+      - name: tflint
+        if: steps.tf.outputs.found == 'true'
+        run: tflint --recursive --chdir=terraform
+
+      - name: checkov
+        if: steps.tf.outputs.found == 'true'
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          soft_fail: true   # tighten to hard fail after baseline hardening (M4)
+
+  services-build-scan:
+    name: Docker build + Trivy scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover service images
+        id: imgs
+        run: |
+          mapfile -t dirs < <(find services -maxdepth 2 -name Dockerfile -printf '%h\n' 2>/dev/null | sort)
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "none=true" >> "$GITHUB_OUTPUT"
+            echo "No service Dockerfiles yet — skipping."
+          else
+            echo "none=false" >> "$GITHUB_OUTPUT"
+            echo "list=${dirs[*]}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: aquasecurity/setup-trivy@v0.2.2
+        if: steps.imgs.outputs.none == 'false'
+
+      - name: Build and scan each changed service
+        if: steps.imgs.outputs.none == 'false'
+        run: |
+          for d in ${{ steps.imgs.outputs.list }}; do
+            echo "::group::Building $d"
+            docker build -t "documind/$(basename "$d"):ci" "$d"
+            echo "::endgroup::"
+            echo "::group::Trivy scan $d"
+            trivy image --exit-code 0 --severity HIGH,CRITICAL "documind/$(basename "$d"):ci"
+            # M4: switch to --exit-code 1 to hard-fail on HIGH/CRITICAL
+            echo "::endgroup::"
+          done
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

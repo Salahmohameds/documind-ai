@@ -40,7 +40,16 @@ checklist.
 | M4 | Hardening (probes, HPA, netpol, PDB, Vault) | Pending |
 | M5 | Tracing, RAG eval, perf comparison, recorded demos | Pending |
 
+## Team
+
+9 roles — see **[docs/team/ROLES.md](docs/team/ROLES.md)** for ownership,
+start weeks, and folder responsibilities. Only the Cloud Lead and Cloud
+Deployment Engineer hold OCI access. Timeline: [docs/plan/TIMELINE.md](docs/plan/TIMELINE.md).
+Contribution rules: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Repository layout
 
-See §28 of [the proposal](docs/PROJECT-PROPOSAL.md). Architecture Decision
-Records live in [`docs/adr/`](docs/adr/) — ADR-001 through ADR-007.
+See §28 of [the proposal](docs/PROJECT-PROPOSAL.md). Folder-level conventions:
+[terraform/](terraform/README.md) · [services/](services/README.md) ·
+[kubernetes/](kubernetes/README.md) · [tests/](tests/README.md).
+Architecture Decision Records live in [`docs/adr/`](docs/adr/) — ADR-001 through ADR-007.
