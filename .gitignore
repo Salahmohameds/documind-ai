@@ -1,0 +1,74 @@
+# ---- Terraform ----
+.terraform/
+.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+tfplan
+tfplan-*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# tfvars: only *.tfvars.example may be committed
+*.tfvars
+!*.tfvars.example
+# remote backend config: only backend.hcl.example may be committed
+backend.hcl
+!backend.hcl.example
+
+# ---- Secrets / keys (never commit) ----
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+.env
+.env.*
+!.env.example
+.oci/
+.oci-s3-credentials
+*credentials*
+kubeconfig
+kubeconfig_*
+
+# ---- Kubernetes local artifacts ----
+*.kubeconfig
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Node ----
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-error.log*
+
+# ---- IDE / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Logs & temp ----
+*.log
+logs/
+tmp/
+.temp/
