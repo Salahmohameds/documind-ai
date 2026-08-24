@@ -1,24 +1,75 @@
-# Delivery Timeline — M0 → Final
+# Delivery Timeline — Prepare-First, Burst-Deploy Strategy
 
-Weeks are relative (W0 = project start). Exit criteria are demoable states, not intentions.
+## Why this plan
 
-| Milestone | Weeks | Exit criteria | Lead roles | Supporting |
-|-----------|-------|---------------|-----------|------------|
-| **W0 pre-flight** | W0 | GenAI access confirmed · quotas confirmed · stack decisions locked (D1–D5 in proposal §26) · security requirements drafted | 1, 7 | 2 |
-| **M0 baseline** | W1–W2 | Monolith runs in one container + on a VM · baseline k6 numbers recorded | 3, 8 | 1 |
-| **M1 local pipeline** | W3–W4 | 5 services on docker compose · upload → queue → classify/extract → RAG with citations works locally | 3, 5, 6, 4 | 8 |
-| **M2 infra live** | W4–W5 | `terraform apply` brings up VCN + OKE + datastores in dev · pre-flight findings closed | 1 | 2, 7 |
-| **M3 deployed** | W5–W6 | CI → OCIR → OKE · app reachable through LB · smoke tests green | 2 | all |
-| **M4 hardened** | W6–W7 | Probes, limits, HPA, NetworkPolicies, PDB, Vault, security scans gating | 2, 7 | 9 |
-| **M5 beyond** | W7–W9 | Tracing live · RAG eval numbers · perf comparison done · self-healing/HPA/rollback demos recorded | 8, 9, 4 | 2 |
-| **Final** | W9+buffer | Docs complete · ADRs final · presentation rehearsed · recorded demo backups | 9 | all |
+OCI budget is limited and a running platform (OKE nodes, LB, NAT, database) is
+expensive per day. So we **do not run infrastructure for weeks**. Instead:
 
-## Who can start what, immediately
+1. **Prepare everything for free** — code, containers, manifests, CI, Terraform
+   (plan-validated against the real tenancy), and full rehearsals on a local
+   **kind** cluster (Kubernetes-in-Docker).
+2. **One short paid deployment burst (~4–5 days)** — apply → deploy → test →
+   capture ALL evidence → destroy.
+3. **Deliver from recorded evidence** — analysis, docs, and presentation use
+   the screenshots/videos/numbers captured during the burst.
 
-- **W0 (now):** roles 1, 2, 3, 7 have real work. Nobody is blocked.
-- **W1:** roles 4, 5, 6, 8, 9 start (they consume role 3's API contracts and role 7's standards).
-- **Nobody waits idle:** if blocked on another role, take the next task in your folder's README or help write tests.
+> Rule: **after the burst there is no "retake" without paying again.** Every
+> screenshot, video, and measurement must be on the checklist
+> ([EVIDENCE-CHECKLIST.md](EVIDENCE-CHECKLIST.md)) before teardown starts.
 
-## Buffer rule
+---
 
-The final week before presentation is **buffer** — no new features. Only hardening, docs, and demo rehearsal.
+## Phase overview
+
+| Phase | Weeks | OCI cost | What happens |
+|-------|-------|----------|--------------|
+| **A — Prepare** | W0–W4 | ~zero (only trivial GenAI test calls) | All code, containers, manifests, CI, Terraform; rehearsals on docker compose + kind; images pushed to OCIR (OCIR storage is free) |
+| **B — Deployment burst** | W5 (4–5 days) | **The only paid window** | terraform apply → CI/CD deploy → full validation → evidence capture → destroy + verify empty |
+| **C — Deliver** | W6–W8 | zero | Performance/cost analysis from captured numbers, docs, ADRs, presentation, video editing |
+
+---
+
+## Phase A — Prepare (W0–W4, local only)
+
+| Milestone | Weeks | Exit criteria | Lead roles |
+|-----------|-------|---------------|-----------|
+| **W0 pre-flight** | W0 | GenAI access confirmed (test call) · quotas confirmed · decisions D1–D5 closed · security requirements drafted | 1, 7 |
+| **M0 monolith** | W1–W2 | Monolith runs in one container (resource-limited locally) · baseline k6 numbers recorded (local, caveats documented) | 3, 8 |
+| **M1 local pipeline** | W2–W3 | 5 services on docker compose · upload → queue → classify/extract → RAG with citations → risk score works end-to-end locally | 3, 5, 6, 4 |
+| **M2 deploy-ready** | W3–W4 | See burst readiness below | 1, 2 |
+
+### M2 "deploy-ready" definition (the go/no-go for the burst)
+
+- ☐ Terraform complete: `terraform validate` clean + **real `terraform plan` reviewed** (plan is read-only — free) attached to PR
+- ☐ All 5 images built and **pushed to OCIR** (free) with version tags
+- ☐ All k8s manifests **rehearsed on kind**: deploy, probes, HPA scaling, NetworkPolicies, PDB, rolling update, rollback, pod-delete self-healing — **recorded on kind as backup footage**
+- ☐ CI green on `main`: gitleaks + trivy + tflint/checkov
+- ☐ RAG evaluation run locally; golden dataset frozen
+- ☐ Budget alert configured in OCI (role 1) before day 1
+- ☐ Evidence checklist printed; screenshot naming agreed (`NN-description.png` like weeks 1–3)
+- ☐ Demo script rehearsed end-to-end at least once
+
+## Phase B — Deployment burst (W5, ~4–5 days)
+
+Full runbook: [DEPLOYMENT-RUNBOOK.md](DEPLOYMENT-RUNBOOK.md)
+
+| Day | Focus | Owner |
+|-----|-------|-------|
+| 1 | `terraform apply` (network → OKE → datastores) · verify VCN/NSGs/OKE in console · screenshots | 1 (+2) |
+| 2 | CI/CD deploy all services → LB live → smoke tests · fix issues (buffer built in) | 2 |
+| 3 | **Evidence day**: functional tests · k6 official load runs · HPA live demo · self-healing timed · rolling update + rollback · RAG eval vs real GenAI · Grafana + tracing captures · monolith-vs-OKE numbers | 8 (+ all) |
+| 4 | Buffer: re-run/record anything missing or flaky | all |
+| 5 | **Teardown**: delete k8s workload (LB first!) → `terraform destroy` → post-destroy inventory proof → compartment verified empty | 1, 2 |
+
+**Cost guardrails:** budget alert day 0 · smallest viable node pool (2 × E4.Flex 1 OCPU) · LB deleted before nodes · same-day destroy verification (orphaned LBs/NAT gateways are the classic money leaks).
+
+## Phase C — Deliver (W6–W8, zero OCI cost)
+
+| Milestone | Exit criteria | Lead roles |
+|-----------|--------------|-----------|
+| **M-final docs** | Performance comparison + cost analysis written from burst numbers · DR docs · ADRs finalized | 8, 9, 1 |
+| **Presentation** | Demo video edited · slides · walkthrough rehearsed · validation matrix fully ✅ with evidence links | 9 | 
+
+## Weekly rhythm (unchanged)
+
+- PRs reviewed by folder owner within 24h · 30-min weekly integration checkpoint · blocked on OCI → ask roles 1/2, never wait >2 days.

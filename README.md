@@ -28,17 +28,24 @@ checklist.
 | Runtime | OKE private node pool, VCN-native CNI, NSGs + NetworkPolicies |
 | Registry | OCIR, versioned tags, Trivy-gated |
 
+## Delivery strategy — prepare first, burst-deploy
+
+OCI budget is limited, so the platform is **never left running**: everything is
+prepared locally for free (compose, **kind** cluster rehearsals, Terraform
+plan-validated, images pushed to OCIR), then deployed in **one short paid
+burst (~4–5 days)** — apply → deploy → test → capture all evidence → destroy.
+
+- Plan: [docs/plan/TIMELINE.md](docs/plan/TIMELINE.md)
+- Burst runbook: [docs/plan/DEPLOYMENT-RUNBOOK.md](docs/plan/DEPLOYMENT-RUNBOOK.md)
+- Evidence capture list: [docs/plan/EVIDENCE-CHECKLIST.md](docs/plan/EVIDENCE-CHECKLIST.md)
+
 ## Status
 
-| Milestone | Scope | Status |
-|-----------|-------|--------|
-| W0 | Pre-flight: GenAI access, quotas, stack decisions | **Next up** |
-| M0 | Monolith baseline + k6 numbers | Pending |
-| M1 | 5 services local (compose) | Pending |
-| M2 | Terraform infra on OCI dev | Pending |
-| M3 | CI/CD → OCIR → OKE live | Pending |
-| M4 | Hardening (probes, HPA, netpol, PDB, Vault) | Pending |
-| M5 | Tracing, RAG eval, perf comparison, recorded demos | Pending |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| A — Prepare (W0–W4) | Pre-flight · monolith baseline · 5 services on compose · deploy-ready (kind-rehearsed, images in OCIR, TF plan reviewed) | **W0 in progress** |
+| B — Burst (W5, ~5 days) | terraform apply → deploy → full validation → evidence capture → destroy + verify empty | Pending |
+| C — Deliver (W6–W8) | Perf/cost analysis from burst numbers · docs · ADRs · presentation · video | Pending |
 
 ## Team
 

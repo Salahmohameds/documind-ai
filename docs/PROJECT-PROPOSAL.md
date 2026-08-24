@@ -700,16 +700,27 @@ cloud-native architecture behaves differently under load and failure.
 
 ### Delivery milestones (execution view)
 
+> **Strategy update:** to respect the limited OCI budget, infrastructure is
+> **never left running**. All work is prepared locally for free (docker
+> compose, kind-cluster rehearsals, Terraform plan-validated, images pushed to
+> OCIR), then deployed in **one short paid burst (~4–5 days)**: apply → deploy
+> → validate → capture all evidence → destroy. Analysis and presentation are
+> built from the recorded evidence. Execution details:
+> `docs/plan/TIMELINE.md` · `docs/plan/DEPLOYMENT-RUNBOOK.md` ·
+> `docs/plan/EVIDENCE-CHECKLIST.md`.
+
 | Milestone | Exit criteria | Target |
 |-----------|---------------|--------|
-| W0 pre-flight | GenAI region/access confirmed; quotas confirmed; stack choices locked (§26) | Week 0 |
-| M0 | Monolith runs locally + on VM; baseline metrics recorded | W1–W2 |
-| M1 | 5 services on docker-compose; full pipeline works; RAG answers with citations | W3–W4 |
-| M2 | `terraform apply` brings up VCN+OKE+data stores in dev | W4–W5 |
-| M3 | CI builds/pushes/scans; CD deploys; app live through LB | W5–W6 |
-| M4 | Probes, limits, HPA, NetworkPolicies, PDB, Vault wired; security scans gating | W6–W7 |
-| M5 | Tracing, RAG eval harness, perf comparison runs, all demos recorded | W7–W9 |
-| Final | Docs complete, ADRs final, presentation rehearsed | W9 + **buffer** |
+| W0 pre-flight | GenAI access confirmed; quotas confirmed; stack choices locked (§26); security requirements drafted | Week 0 |
+| M0 | Monolith runs locally (resource-limited); baseline k6 numbers recorded | W1–W2 |
+| M1 | 5 services on docker-compose; full pipeline works; RAG answers with citations | W2–W3 |
+| M2 deploy-ready | TF validate + reviewed plan; images in OCIR; full stack rehearsed on kind (probes, HPA, netpol, rollback, self-healing recorded); CI green; budget alert set | W3–W4 |
+| **Burst day 1** | `terraform apply`; VCN/OKE/datastores verified in console | W5 |
+| **Burst day 2** | CI/CD deploys all services; LB→app live; smoke green | W5 |
+| **Burst day 3** | Evidence day: functional matrix, k6 official runs, HPA/self-healing/rollback videos, RAG eval, dashboards, traces | W5 |
+| **Burst day 4** | Buffer: re-capture anything missing | W5 |
+| **Burst day 5** | Teardown: LB first → `terraform destroy` → compartment verified empty | W5 |
+| Final | Docs complete, ADRs final, presentation rehearsed, recorded demo backups | W6–W8 + **buffer** |
 
 M2 can proceed in parallel with M1 if platform/app tracks are split between
 team members. A buffer week before presentation day is mandatory.
@@ -755,6 +766,12 @@ cost per 100 documents processed.
 Framing: the conclusion evaluates **cost vs scalability vs resilience vs
 operational complexity** — not "microservices are cheaper." Prices from public
 OCI price list + measured utilization; assumptions stated inline.
+
+Because of the burst-deployment strategy, the platform's **actual billing
+period is the ~5-day burst window** — the cost analysis therefore reports
+real spend captured during the burst (budget screen + utilization metrics)
+plus a normalized monthly projection, rather than hypothetical month-long
+estimates.
 
 ---
 
