@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+requests
+python-json-logger
+opentelemetry-distro
+opentelemetry-exporter-otlp
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-requests
+prometheus-fastapi-instrumentator

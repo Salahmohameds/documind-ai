@@ -1,0 +1,77 @@
+# Values for prometheus-community/kube-prometheus-stack
+# helm install kube-prom-stack prometheus-community/kube-prometheus-stack \
+#   -n monitoring -f kube-prometheus-stack-values.yaml
+
+fullnameOverride: kube-prom-stack
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # Let Prometheus auto-discover ServiceMonitors from any namespace,
+    # not just kube-system/monitoring — important once app teams add their own.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+grafana:
+  adminUser: admin
+  adminPassword: ejada2026
+  service:
+    type: ClusterIP
+  # Auto-provision our dashboard on startup so nobody has to import it by hand
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: "default"
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  dashboardsConfigMaps:
+    default: "grafana-dashboard-observability"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+# kube-state-metrics (pod/deployment/HPA state -> feeds the "Pods/Restarts/HPA" panels)
+kube-state-metrics:
+  enabled: true
+
+# node-exporter (CPU/Memory at node level)
+prometheus-node-exporter:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+# Disable components that don't apply / need extra kubelet config on managed OKE
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
