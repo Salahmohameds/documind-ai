@@ -19,6 +19,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RiskBadge, StatusBadge } from "@/components/documind/badges";
+import { Anim, Counter, DrawIn, Lift, Shimmer, Stagger, motion } from "@/components/motion";
 import {
   EmptyPanel,
   ErrorPanel,
@@ -94,7 +95,7 @@ export function DashboardView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 pt-5 pb-20 sm:px-6">
       {/* Page header --------------------------------------------------- */}
-      <div className="anim-up flex flex-none flex-wrap items-center gap-2.5">
+      <Anim preset="blur" className="flex flex-none flex-wrap items-center gap-2.5">
         <div className="flex flex-col gap-[3px]">
           <h1 className="text-2xl font-bold tracking-[-.025em] text-[var(--text)]">Dashboard</h1>
           <span className="flex items-center gap-2 text-xs text-[var(--text-3)]">
@@ -124,7 +125,7 @@ export function DashboardView() {
               align="end"
               sideOffset={6}
               style={{ width: 160 }}
-              className="anim-down rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
+              className="rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
             >
               {RANGES.map((r) => (
                 <DropdownMenuItem
@@ -159,7 +160,7 @@ export function DashboardView() {
             {exportAction.pending ? "Exporting…" : "Export"}
           </Button>
         </div>
-      </div>
+      </Anim>
 
       {dash.status === "error" && dash.error && (
         <ErrorPanel
@@ -194,17 +195,13 @@ export function DashboardView() {
           )}
 
           {/* KPI row -------------------------------------------------- */}
-          <div className="grid flex-none grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {data.kpis.map((kpi, i) => {
+          <Stagger className="grid flex-none grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {data.kpis.map((kpi) => {
               const Icon = KPI_ICONS[kpi.icon];
               const Trend = kpi.direction === "up" ? TrendUpIcon : TrendDownIcon;
               const zero = kpi.value === "0";
               return (
-                <Card
-                  key={kpi.key}
-                  className="anim-up lift gap-3 rounded-[14px] p-[18px]"
-                  style={{ ["--i" as string]: i }}
-                >
+                <Lift key={kpi.key} as={Card} className="gap-3 rounded-[14px] p-[18px]">
                   <div className="flex items-center gap-2.5">
                     <span className="text-[13px] font-medium text-[var(--text-2)]">{kpi.label}</span>
                     <span
@@ -215,13 +212,15 @@ export function DashboardView() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2.5">
-                    <span
+                    <Anim
+                      as="span"
+                      preset="pop"
                       key={kpi.value}
-                      className="anim-pop text-[28px] leading-none font-bold tracking-[-.03em] text-[var(--text)]"
+                      className="text-[28px] leading-none font-bold tracking-[-.03em] text-[var(--text)]"
                     >
                       {kpi.value}
                       {kpi.unit && <span className="text-[15px] font-semibold text-[var(--text-3)]">{kpi.unit}</span>}
-                    </span>
+                    </Anim>
                     {!zero && (
                       <span
                         className="inline-flex items-center gap-[3px] rounded-full px-2 py-1 text-[11px] font-semibold"
@@ -233,14 +232,14 @@ export function DashboardView() {
                     )}
                   </div>
                   <span className="text-[11px] text-[var(--text-3)]">{kpi.footnote}</span>
-                </Card>
+                </Lift>
               );
             })}
-          </div>
+          </Stagger>
 
           {/* Volume chart + gauge ------------------------------------- */}
-          <div className="grid flex-none grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-            <Card className="anim-up lift gap-3 rounded-[14px] p-4" style={{ ["--i" as string]: 4 }}>
+          <Stagger className="grid flex-none grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <Lift as={Card} className="gap-3 rounded-[14px] p-4">
               <div className="flex items-start">
                 <div className="flex flex-col gap-0.5">
                   <CardTitle className="text-sm font-semibold">Document volume — {RANGE_LABEL[range].toLowerCase()}</CardTitle>
@@ -271,12 +270,8 @@ export function DashboardView() {
                     ))}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <svg
-                      key={range}
-                      viewBox="0 0 600 144"
-                      preserveAspectRatio="none"
-                      className="dm-chart-in h-36 w-full"
-                    >
+                    <DrawIn key={range}>
+                    <svg viewBox="0 0 600 144" preserveAspectRatio="none" className="h-36 w-full">
                       {chart.grid.map((g, i) => (
                         <line key={i} x1={0} y1={g.y} x2={g.x2} y2={g.y} stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
                       ))}
@@ -293,6 +288,7 @@ export function DashboardView() {
                         />
                       ))}
                     </svg>
+                    </DrawIn>
                     <div className="flex justify-between font-mono text-[9px] text-[var(--text-3)]">
                       {["Jul 26", "Jul 31", "Aug 05", "Aug 10", "Aug 15", "Aug 20", "Aug 24"].map((d) => (
                         <span key={d}>{d}</span>
@@ -301,9 +297,9 @@ export function DashboardView() {
                   </div>
                 </div>
               )}
-            </Card>
+            </Lift>
 
-            <Card className="anim-up lift gap-2.5 rounded-[14px] px-[18px] pt-4 pb-[18px]" style={{ ["--i" as string]: 5 }}>
+            <Lift as={Card} className="gap-2.5 rounded-[14px] px-[18px] pt-4 pb-[18px]">
               <div className="flex items-start">
                 <div className="flex flex-col gap-0.5">
                   <CardTitle className="text-sm font-semibold">Low-risk rate</CardTitle>
@@ -315,28 +311,34 @@ export function DashboardView() {
               </div>
 
               <div className="relative h-[132px] w-[250px] max-w-full self-center">
+                {/* The ticks light up in dial order, so the gauge reads as
+                    sweeping to its value rather than appearing at it. */}
                 {ticks.map((t, i) => (
-                  <span
+                  <motion.span
                     key={i}
-                    className="anim-fade absolute bottom-0 left-[calc(50%-2px)] w-1 origin-[50%_100%] rounded-[3px]"
+                    className="absolute bottom-0 left-[calc(50%-2px)] w-1 origin-[50%_100%] rounded-[3px]"
+                    initial={{ opacity: 0 }}
+                    animate={{
+                      opacity: t.opacity,
+                      backgroundColor: t.on ? "var(--ok)" : "var(--border)",
+                    }}
+                    transition={{ duration: 0.24, delay: 0.1 + i * 0.012 }}
                     style={{
                       height: t.height,
                       transform: `rotate(${t.angle.toFixed(1)}deg) translateY(-${t.offset}px)`,
-                      background: t.on ? "var(--ok)" : "var(--border)",
-                      opacity: t.opacity,
-                      animationDuration: ".2s",
-                      animationDelay: `${i * 14}ms`,
-                      transition: "background .3s var(--ease-out), height .3s var(--ease-out)",
                     }}
                   />
                 ))}
                 <div className="absolute inset-x-0 bottom-0.5 flex flex-col items-center gap-0.5">
-                  <span
+                  {/* Counts up in step with the dial sweep above it. */}
+                  <Counter
                     key={data.gauge.pct}
-                    className="anim-pop text-[34px] leading-none font-bold tracking-[-.03em] text-[var(--text)]"
-                  >
-                    {data.gauge.pct}%
-                  </span>
+                    value={data.gauge.pct}
+                    suffix="%"
+                    delay={0.1}
+                    duration={0.7}
+                    className="text-[34px] leading-none font-bold tracking-[-.03em] text-[var(--text)]"
+                  />
                   <span className="text-[11px] text-[var(--text-3)]">{data.gauge.target}</span>
                 </div>
               </div>
@@ -353,12 +355,12 @@ export function DashboardView() {
                   </span>
                 ))}
               </div>
-            </Card>
-          </div>
+            </Lift>
+          </Stagger>
 
           {/* Flagged + exceptions ------------------------------------- */}
-          <div className="grid min-h-fit flex-[1_0_auto] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-            <Card className="anim-up min-h-[412px] gap-0 overflow-hidden rounded-[14px] p-0" style={{ ["--i" as string]: 6 }}>
+          <Stagger inView className="grid min-h-fit flex-[1_0_auto] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <Anim as={Card} className="min-h-[412px] gap-0 overflow-hidden rounded-[14px] p-0">
               <CardHeader className="flex-none items-start gap-0 px-[18px] pt-[18px] pb-3">
                 <div className="flex flex-col gap-0.5">
                   <CardTitle className="text-[15px] font-semibold tracking-[-.01em]">
@@ -406,12 +408,13 @@ export function DashboardView() {
                       <TableHead className={`${TH} w-[70px] text-right`}>Action</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
-                    {data.flagged.map((f, i) => (
-                      <TableRow
+                  <Stagger as={TableBody} gap={0.03} delay={0.1}>
+                    {data.flagged.map((f) => (
+                      <Anim
+                        as={TableRow}
+                        preset="row"
                         key={f.id}
-                        className="anim-row h-14 border-border transition-colors hover:bg-[var(--surface-2)] [&>td]:first:pl-[18px] [&>td]:last:pr-[18px]"
-                        style={{ ["--i" as string]: i, ["--stagger" as string]: "26ms" }}
+                        className="h-14 border-border transition-colors hover:bg-[var(--surface-2)] [&>td]:first:pl-[18px] [&>td]:last:pr-[18px]"
                       >
                         <TableCell className="px-0">
                           <span className="flex size-[30px] items-center justify-center rounded-[10px] border border-border bg-[var(--surface-2)]">
@@ -441,15 +444,15 @@ export function DashboardView() {
                             Review
                           </Link>
                         </TableCell>
-                      </TableRow>
+                      </Anim>
                     ))}
-                  </TableBody>
+                  </Stagger>
                 </Table>
                 </div>
               )}
-            </Card>
+            </Anim>
 
-            <Card className="anim-up gap-3.5 rounded-[14px] p-4" style={{ ["--i" as string]: 7 }}>
+            <Anim as={Card} className="gap-3.5 rounded-[14px] p-4">
               <div className="flex flex-col gap-0.5">
                 <CardTitle className="text-sm font-semibold">Top exception types</CardTitle>
                 <CardDescription className="text-[11px]">Frequency across flagged documents</CardDescription>
@@ -463,7 +466,7 @@ export function DashboardView() {
                   </span>
                 ) : (
                   data.exceptions.map(([label, pct], i) => (
-                    <div key={label} className="anim-up flex flex-col gap-1.5" style={{ ["--i" as string]: i }}>
+                    <Anim key={label} delay={0.18 + i * 0.05} className="flex flex-col gap-1.5">
                       <div className="flex items-baseline">
                         <span className="text-xs text-[var(--text-2)]">{label}</span>
                         <span className="ml-auto font-mono text-[11px] text-[var(--text-3)]">{pct}</span>
@@ -471,15 +474,15 @@ export function DashboardView() {
                       <Progress
                         value={pct}
                         className="h-1"
-                        indicatorClassName="rounded-full transition-transform duration-700 ease-[cubic-bezier(.22,.8,.3,1)]"
+                        indicatorClassName="rounded-full"
                         indicatorStyle={{ background: "var(--c2)" }}
                       />
-                    </div>
+                    </Anim>
                   ))
                 )}
               </CardContent>
-            </Card>
-          </div>
+            </Anim>
+          </Stagger>
 
           {data.seriesSeed < 0 && (
             <EmptyPanel
@@ -511,36 +514,36 @@ function DashboardSkeleton({ slow }: { slow: boolean }) {
         {[0, 1, 2, 3].map((i) => (
           <Card key={i} className="gap-3 rounded-[14px] p-[18px]">
             <div className="flex items-center gap-2.5">
-              <span className="skeleton h-3 w-[120px]" />
-              <span className="skeleton ml-auto size-[30px] rounded-full" />
+              <Shimmer className="h-3 w-[120px]" />
+              <Shimmer className="ml-auto size-[30px] rounded-full" />
             </div>
-            <span className="skeleton h-7 w-[90px]" />
-            <span className="skeleton h-2.5 w-[140px]" />
+            <Shimmer className="h-7 w-[90px]" />
+            <Shimmer className="h-2.5 w-[140px]" />
           </Card>
         ))}
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="gap-3 rounded-[14px] p-4">
-          <span className="skeleton h-3.5 w-[220px]" />
-          <span className="skeleton h-36 w-full" />
+          <Shimmer className="h-3.5 w-[220px]" />
+          <Shimmer className="h-36 w-full" />
         </Card>
         <Card className="items-center gap-3 rounded-[14px] p-4">
-          <span className="skeleton h-3.5 w-[140px] self-start" />
-          <span className="skeleton h-[132px] w-[230px] rounded-t-full" />
-          <span className="skeleton h-8 w-[120px]" />
+          <Shimmer className="h-3.5 w-[140px] self-start" />
+          <Shimmer className="h-[132px] w-[230px] rounded-t-full" />
+          <Shimmer className="h-8 w-[120px]" />
         </Card>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="min-h-[412px] gap-3 rounded-[14px] p-[18px]">
-          <span className="skeleton h-4 w-[240px]" />
+          <Shimmer className="h-4 w-[240px]" />
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <span key={i} className="skeleton h-10 w-full" />
+            <Shimmer key={i} delay={i * 0.08} className="h-10 w-full" />
           ))}
         </Card>
         <Card className="gap-3.5 rounded-[14px] p-4">
-          <span className="skeleton h-3.5 w-[160px]" />
+          <Shimmer className="h-3.5 w-[160px]" />
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <span key={i} className="skeleton h-6 w-full" />
+            <Shimmer key={i} delay={i * 0.08} className="h-6 w-full" />
           ))}
         </Card>
       </div>

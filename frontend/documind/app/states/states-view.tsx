@@ -8,6 +8,7 @@ import { MoonIcon, SearchIcon } from "@/components/ui/icons";
 import type { DocStatus } from "@/lib/design";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Shimmer } from "@/components/motion";
 
 /* -- Sheet fixtures ------------------------------------------------------ */
 
@@ -209,11 +210,11 @@ export function StatesView() {
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span className="skeleton" style={{ width: 20, height: 20, flex: "none" }} />
-                    <span className="skeleton" style={{ width: `${w}%`, height: 11 }} />
+                    <Shimmer delay={i * 0.08} style={{ width: 20, height: 20, flex: "none" }} />
+                    <Shimmer delay={i * 0.08} style={{ width: `${w}%`, height: 11 }} />
                   </div>
-                  <span className="skeleton" style={{ width: 66, height: 14 }} />
-                  <span className="skeleton" style={{ justifySelf: "end", width: 34, height: 14 }} />
+                  <Shimmer delay={i * 0.08} style={{ width: 66, height: 14 }} />
+                  <Shimmer delay={i * 0.08} style={{ justifySelf: "end", width: 34, height: 14 }} />
                 </div>
               ))}
             </div>
@@ -231,22 +232,21 @@ export function StatesView() {
                   className="card"
                   style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}
                 >
-                  <span className="skeleton" style={{ width: `${widths[0]}%`, height: 10 }} />
-                  <span className="skeleton" style={{ width: `${widths[1]}%`, height: 24 }} />
-                  <span className="skeleton" style={{ width: `${widths[2]}%`, height: 9 }} />
+                  <Shimmer style={{ width: `${widths[0]}%`, height: 10 }} />
+                  <Shimmer style={{ width: `${widths[1]}%`, height: 24 }} />
+                  <Shimmer style={{ width: `${widths[2]}%`, height: 9 }} />
                 </div>
               ))}
               <div
                 className="card"
                 style={{ gridColumn: "span 2", padding: 14, display: "flex", alignItems: "center", gap: 16 }}
               >
-                <span
-                  className="skeleton"
+                <Shimmer
                   style={{ width: 76, height: 76, borderRadius: "50%", flex: "none" }}
                 />
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
                   {[80, 62, 71].map((w) => (
-                    <span key={w} className="skeleton" style={{ width: `${w}%`, height: 9 }} />
+                    <Shimmer key={w} style={{ width: `${w}%`, height: 9 }} />
                   ))}
                 </div>
               </div>

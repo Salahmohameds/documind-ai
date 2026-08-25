@@ -11,6 +11,7 @@ import { Spinner } from "@/components/documind/feedback";
 import { MoonIcon, WarningIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Anim, AnimatePresence } from "@/components/motion";
 
 /**
  * A working sign-in form. `signIn()` is the only thing to swap for the real
@@ -90,7 +91,7 @@ export function LoginCard() {
         padding: "48px clamp(14px, 4vw, 24px)",
       }}
     >
-      <form className="anim-up" style={cardStyle} onSubmit={onSubmit} noValidate>
+      <Anim as="form" preset="blur" style={cardStyle} onSubmit={onSubmit} noValidate>
         {/* Brand ------------------------------------------------------- */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Logo size={34} />
@@ -102,10 +103,11 @@ export function LoginCard() {
           </div>
         </div>
 
+        <AnimatePresence initial={false} mode="popLayout">
         {authError && (
-          <div
+          <Anim
+            preset="down"
             role="alert"
-            className="anim-down"
             style={{
               display: "flex",
               gap: 10,
@@ -124,13 +126,13 @@ export function LoginCard() {
               </span>
               <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--text-2)" }}>{authError.detail}</span>
             </div>
-          </div>
+          </Anim>
         )}
 
         {status === "success" && (
-          <div
+          <Anim
+            preset="down"
             role="status"
-            className="anim-down"
             style={{
               display: "flex",
               alignItems: "center",
@@ -145,8 +147,9 @@ export function LoginCard() {
             <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ok)" }}>
               Signed in — opening your workspace…
             </span>
-          </div>
+          </Anim>
         )}
+        </AnimatePresence>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -253,13 +256,12 @@ export function LoginCard() {
         <span style={{ fontSize: 12, color: "var(--text-3)", textAlign: "center" }}>
           No account? <Link href="/register">Create one</Link>
         </span>
-      </form>
+      </Anim>
 
       {/* Demo credentials — remove with the mock auth. ----------------- */}
-      <div
-        className="card anim-up"
+      <Anim delay={0.12}
+        className="card"
         style={{
-          ["--i" as string]: 1,
           width: 400,
           maxWidth: "100%",
           display: "flex",
@@ -288,7 +290,7 @@ export function LoginCard() {
         >
           Fill
         </Button>
-      </div>
+      </Anim>
 
       <div
         onClick={toggleTheme}

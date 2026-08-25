@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { getPage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Anim } from "@/components/motion";
 
 /**
  * The document reader beside the per-document thread. It is the verification
@@ -72,10 +73,9 @@ export function DocumentReader({
   }, [onCitedPage, citation?.id, page]);
 
   return (
-    <div
-      className="card anim-up"
+    <Anim
+      className="card"
       style={{
-        ["--i" as string]: 2,
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
@@ -274,8 +274,10 @@ export function DocumentReader({
                 }
               >
                 {cited && (
-                  <span
-                    className="mono anim-pop"
+                  <Anim
+                    as="span"
+                    preset="pop"
+                    className="mono"
                     style={{
                       alignSelf: "flex-start",
                       fontSize: 9,
@@ -290,7 +292,7 @@ export function DocumentReader({
                     }}
                   >
                     Cited in answer
-                  </span>
+                  </Anim>
                 )}
                 <span
                   style={{
@@ -319,6 +321,6 @@ export function DocumentReader({
           })}
         </div>
       </div>
-    </div>
+    </Anim>
   );
 }

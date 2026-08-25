@@ -14,6 +14,7 @@ import { PipelineTrack } from "@/components/documind/pipeline";
 import { ConfirmDialog, EmptyPanel, InlineError, Spinner, Toaster, useToasts } from "@/components/documind/feedback";
 import { CloudUploadIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { Anim, AnimatePresence, GrowBar, Sweep } from "@/components/motion";
 
 const TICK_MS = 160;
 const SAMPLE_FILES: [string, number][] = [
@@ -236,8 +237,7 @@ export function UploadView() {
       }}
     >
       {/* Header --------------------------------------------------------- */}
-      <div
-        className="anim-up"
+      <Anim
         style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -264,12 +264,11 @@ export function UploadView() {
           </div>
           <Button variant="surface" size="dmQuiet">Connect bucket</Button>
         </div>
-      </div>
+      </Anim>
 
       {/* Dropzone ------------------------------------------------------- */}
-      <div
-        className="anim-up"
-        style={{ ["--i" as string]: 1, flex: "none", display: "flex", flexDirection: "column", gap: 10 }}
+      <Anim
+        style={{ flex: "none", display: "flex", flexDirection: "column", gap: 10 }}
       >
         <input
           ref={inputRef}
@@ -282,12 +281,14 @@ export function UploadView() {
           }}
         />
 
+        <AnimatePresence mode="wait" initial={false}>
         {dragging ? (
-          <div
+          <Anim
+            key="dragging"
+            preset="scale"
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
             onDrop={onDrop}
-            className="anim-scale"
             style={{
               ...dropzoneBase,
               border: "1.5px solid var(--accent)",
@@ -319,10 +320,11 @@ export function UploadView() {
                 {UPLOAD_LIMITS.extensions.join(", ").toUpperCase()} · max {UPLOAD_LIMITS.maxMb} MB each
               </span>
             </div>
-          </div>
+          </Anim>
         ) : inFlight > 0 ? (
-          <div
-            className="anim-scale"
+          <Anim
+            key="inflight"
+            preset="scale"
             style={{
               ...dropzoneBase,
               gap: 18,
@@ -374,17 +376,19 @@ export function UploadView() {
             <Button variant="outlineStrong" size="dmQuiet" onClick={() => setConfirmClear(true)} style={{ height: 30, padding: "0 12px" }}>
               Cancel all
             </Button>
-          </div>
+          </Anim>
         ) : finished ? (
-          <div
-            className="anim-scale"
+          <Anim
+            key="finished"
+            preset="scale"
             style={{
               ...dropzoneBase,
               border: `1px solid var(${failed.length ? "--warn" : "--ok"}-border)`,
               background: `var(${failed.length ? "--warn" : "--ok"}-soft)`,
             }}
           >
-            <div
+            <Anim
+              preset="pop"
               style={{
                 width: 48,
                 height: 48,
@@ -397,10 +401,9 @@ export function UploadView() {
                 fontSize: 18,
                 color: `var(${failed.length ? "--warn" : "--ok"})`,
               }}
-              className="anim-pop"
             >
               {failed.length ? "!" : "✓"}
-            </div>
+            </Anim>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center", maxWidth: 460 }}>
               <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
                 {failed.length === 0
@@ -425,9 +428,11 @@ export function UploadView() {
                 View documents →
               </Link>
             </div>
-          </div>
+          </Anim>
         ) : (
-          <div
+          <Anim
+            key="idle"
+            preset="scale"
             className="hover-surface"
             onDragOver={onDragOver}
             onDrop={onDrop}
@@ -468,8 +473,9 @@ export function UploadView() {
                 Run a sample batch
               </Button>
             </div>
-          </div>
+          </Anim>
         )}
+        </AnimatePresence>
 
         <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "0 2px", flexWrap: "wrap" }}>
           {[
@@ -509,7 +515,7 @@ export function UploadView() {
             </span>
           </label>
         </div>
-      </div>
+      </Anim>
 
       {/* Queue ---------------------------------------------------------- */}
       {jobs.length === 0 ? (
@@ -525,10 +531,9 @@ export function UploadView() {
           }
         />
       ) : (
-        <div
-          className="card anim-up"
+        <Anim
+          className="card"
           style={{
-            ["--i" as string]: 2,
             flex: "none",
             minHeight: "fit-content",
             display: "flex",
@@ -576,17 +581,18 @@ export function UploadView() {
             </div>
           </div>
 
-          {jobs.map((job, i) => (
+          <AnimatePresence initial={false}>
+          {jobs.map((job) => (
             <QueueRow
               key={job.id}
-              index={i}
               job={job}
               onRetry={() => retry(job.id)}
               onCancel={() => cancel(job.id)}
               onRemove={() => remove(job.id)}
             />
           ))}
-        </div>
+          </AnimatePresence>
+        </Anim>
       )}
 
       <ConfirmDialog
@@ -625,13 +631,11 @@ const STAGE_META: Record<UploadJob["stage"], { tone: string; label: (j: UploadJo
 
 function QueueRow({
   job,
-  index,
   onRetry,
   onCancel,
   onRemove,
 }: {
   job: UploadJob;
-  index: number;
   onRetry: () => void;
   onCancel: () => void;
   onRemove: () => void;
@@ -641,11 +645,12 @@ function QueueRow({
   const showTrack = job.stage === "processing" || job.stage === "done" || job.stage === "failed";
 
   return (
-    <div
-      className="anim-row"
+    // `layout` closes the gap when a row is removed, instead of the rows
+    // below it jumping up.
+    <Anim
+      preset="row"
+      layout
       style={{
-        ["--i" as string]: index,
-        ["--stagger" as string]: "40ms",
         display: "flex",
         flexDirection: "column",
         gap: 14,
@@ -790,12 +795,9 @@ function QueueRow({
 
       {job.stage === "uploading" && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            className="sweep"
-            style={{ flex: 1, height: 4, borderRadius: 10, background: "var(--border)", overflow: "hidden" }}
-          >
-            <div style={{ width: `${job.uploadPct}%`, height: "100%", background: "var(--accent)", transition: "width .16s linear" }} />
-          </div>
+          <Sweep style={{ flex: 1, height: 4, borderRadius: 10, background: "var(--border)" }}>
+            <GrowBar pct={job.uploadPct} color="var(--accent)" />
+          </Sweep>
           <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}>
             {((job.sizeMb * job.uploadPct) / 100).toFixed(1)} / {job.sizeMb.toFixed(1)} MB
           </span>
@@ -824,6 +826,6 @@ function QueueRow({
       {job.stage === "rejected" && job.rejected && (
         <InlineError tone="--warn" title="File rejected before upload" detail={job.rejected} />
       )}
-    </div>
+    </Anim>
   );
 }

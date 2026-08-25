@@ -10,6 +10,7 @@ import { Spinner } from "@/components/documind/feedback";
 import { MoonIcon, WarningIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Anim, AnimatePresence } from "@/components/motion";
 
 /**
  * Account creation. `signUp()` is the only thing to swap for the real endpoint;
@@ -131,11 +132,16 @@ export function RegisterView() {
         padding: "48px clamp(14px, 4vw, 24px)",
       }}
     >
+      <AnimatePresence mode="wait" initial={false}>
       {status === "success" ? (
         /* Verification screen ------------------------------------------- */
-        <div className="anim-up" style={{ ...cardStyle, alignItems: "center", textAlign: "center", gap: 18 }}>
-          <span
-            className="anim-pop"
+        <Anim
+          key="verify"
+          preset="blur"
+          style={{ ...cardStyle, alignItems: "center", textAlign: "center", gap: 18 }}
+        >
+          <Anim
+            preset="pop"
             style={{
               width: 46,
               height: 46,
@@ -150,7 +156,7 @@ export function RegisterView() {
             }}
           >
             ✓
-          </span>
+          </Anim>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-.02em", color: "var(--text)" }}>
               Check your inbox
@@ -166,20 +172,18 @@ export function RegisterView() {
           </div>
 
           {resend === "sent" && (
-            <span
-              className="anim-up"
+            <Anim
               style={{ fontSize: 12, color: "var(--ok)", background: "var(--ok-soft)", borderRadius: 10, padding: "8px 12px" }}
             >
               Sent again — it can take a minute to arrive.
-            </span>
+            </Anim>
           )}
           {resend === "failed" && (
-            <span
-              className="anim-up"
+            <Anim
               style={{ fontSize: 12, color: "var(--bad)", background: "var(--bad-soft)", borderRadius: 10, padding: "8px 12px" }}
             >
               We could not reach that address. Check the spelling and try again.
-            </span>
+            </Anim>
           )}
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -207,10 +211,17 @@ export function RegisterView() {
           >
             Wrong address? Go back
           </button>
-        </div>
+        </Anim>
       ) : (
         /* Form ----------------------------------------------------------- */
-        <form className="anim-up" style={cardStyle} onSubmit={onSubmit} noValidate>
+        <Anim
+          key="form"
+          as="form"
+          preset="blur"
+          style={cardStyle}
+          onSubmit={onSubmit}
+          noValidate
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Logo size={34} />
             <div style={{ display: "flex", flexDirection: "column" }}>
@@ -224,8 +235,8 @@ export function RegisterView() {
           </div>
 
           {formError && (
-            <div
-              className="anim-down"
+            <Anim
+              preset="down"
               role="alert"
               style={{
                 display: "flex",
@@ -248,7 +259,7 @@ export function RegisterView() {
                   Sign in
                 </Link>
               )}
-            </div>
+            </Anim>
           )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -333,7 +344,7 @@ export function RegisterView() {
 
               {/* Strength meter — four segments that fill as rules are met. */}
               {values.password.length > 0 && (
-                <div className="anim-fade" style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <Anim preset="fade" style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   <div style={{ display: "flex", gap: 4 }}>
                     {[0, 1, 2, 3].map((i) => (
                       <span
@@ -356,7 +367,7 @@ export function RegisterView() {
                       <span style={{ fontSize: 11, color: "var(--text-3)" }}>Add {strength.next}</span>
                     )}
                   </div>
-                </div>
+                </Anim>
               )}
 
               {shownError("password") && values.password.length === 0 && (
@@ -433,22 +444,21 @@ export function RegisterView() {
           </Button>
 
           {!accepted && valid && (
-            <span className="anim-fade" style={{ fontSize: 11, color: "var(--text-3)", textAlign: "center" }}>
+            <Anim preset="fade" style={{ fontSize: 11, color: "var(--text-3)", textAlign: "center" }}>
               Accept the terms to continue.
-            </span>
+            </Anim>
           )}
 
           <span style={{ fontSize: 12, color: "var(--text-3)", textAlign: "center" }}>
             Already have an account? <Link href="/login">Sign in</Link>
           </span>
-        </form>
+        </Anim>
       )}
+      </AnimatePresence>
 
-      <div
+      <Anim preset="fade" delay={0.2}
         onClick={toggleTheme}
-        className="anim-fade"
         style={{
-          ["--i" as string]: 2,
           display: "flex",
           alignItems: "center",
           gap: 8,
@@ -463,20 +473,20 @@ export function RegisterView() {
         <MoonIcon size={14} color="var(--text-3)" />
         <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}>Dark mode</span>
         <ThemeSwitch theme={theme} />
-      </div>
+      </Anim>
     </div>
   );
 }
 
 function ErrorLine({ children }: { children: ReactNode }) {
   return (
-    <span
-      className="anim-down"
+    <Anim
+      preset="down"
       style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--bad)" }}
     >
       <WarningIcon size={12} />
       {children}
-    </span>
+    </Anim>
   );
 }
 
@@ -523,12 +533,14 @@ function Field({
         disabled={disabled}
         style={{ minWidth: 0, ...(error ? { borderColor: "var(--bad)" } : null) }}
       />
-      {error && <ErrorLine>{error}</ErrorLine>}
+      <AnimatePresence initial={false} mode="wait">
+      {error && <ErrorLine key="err">{error}</ErrorLine>}
       {!error && hint && (
-        <span className="anim-fade" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--ok)" }}>
+        <Anim key="hint" preset="fade" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--ok)" }}>
           ✓ {hint}
-        </span>
+        </Anim>
       )}
+      </AnimatePresence>
     </div>
   );
 }

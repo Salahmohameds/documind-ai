@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CaretDownIcon, ChatIcon, FileIcon, SearchIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { Anim } from "@/components/motion";
 
 const SIMULATIONS = [
   { value: "ok" as const, label: "Default" },
@@ -95,8 +96,7 @@ export function ChatView() {
   return (
     <ChatPage>
       {/* Header --------------------------------------------------------- */}
-      <div
-        className="anim-up"
+      <Anim
         style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -126,7 +126,7 @@ export function ChatView() {
               align="end"
               sideOffset={6}
               style={{ width: 200 }}
-              className="anim-down rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
+              className="rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
             >
               {CHAT_SCOPES.map((s) => (
                 <DropdownMenuItem
@@ -153,7 +153,7 @@ export function ChatView() {
             </Button>
           )}
         </div>
-      </div>
+      </Anim>
 
       <ChatPanel>
         {chat.messages.length === 0 ? (

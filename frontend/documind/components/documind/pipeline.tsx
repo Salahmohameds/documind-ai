@@ -2,6 +2,8 @@
 
 import type { CSSProperties } from "react";
 import { PIPELINE_STEPS } from "@/lib/mock/data";
+import { Anim, Spinner, Stagger, motion } from "@/components/motion";
+import { SPRING } from "@/lib/motion";
 
 export type StepKind = "done" | "failed" | "active" | "pending";
 
@@ -33,7 +35,7 @@ export function PipelineTrack({
   const dotSize = compact ? 14 : 18;
 
   return (
-    <div style={{ display: "flex", alignItems: "flex-start" }}>
+    <Stagger gap={0.04} style={{ display: "flex", alignItems: "flex-start" }}>
       {PIPELINE_STEPS.map((label, i) => {
         const n = i + 1;
         const kind = kindOf(i);
@@ -45,26 +47,32 @@ export function PipelineTrack({
         const rail = (background: string): CSSProperties => ({ flex: 1, height: 1, background });
 
         return (
-          <div
+          <Anim
             key={label}
+            preset="row"
             style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}
           >
             <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
-              <span style={rail(i === 0 ? "transparent" : railBefore)} />
+              {/* The rail crossfades to its tone as the stage completes, so the
+                  track fills left-to-right as work lands. */}
+              <motion.span
+                animate={{ backgroundColor: i === 0 ? "transparent" : railBefore }}
+                transition={{ duration: 0.35 }}
+                style={rail(i === 0 ? "transparent" : railBefore)}
+              />
               {kind === "active" ? (
-                <span
-                  style={{
-                    width: dotSize,
-                    height: dotSize,
-                    flex: "none",
-                    borderRadius: "50%",
-                    border: "2px solid var(--accent-border)",
-                    borderTopColor: "var(--accent)",
-                    animation: "spin .8s linear infinite",
-                  }}
+                <Spinner
+                  size={dotSize}
+                  color="var(--accent)"
+                  track="var(--accent-border)"
+                  style={{ borderWidth: 2 }}
                 />
               ) : (
-                <span
+                <motion.span
+                  layout
+                  transition={SPRING.snappy}
+                  initial={false}
+                  animate={{ scale: kind === "pending" ? 1 : [0.7, 1] }}
                   style={{
                     width: dotSize,
                     height: dotSize,
@@ -80,14 +88,18 @@ export function PipelineTrack({
                   }}
                 >
                   {kind === "done" ? "✓" : kind === "failed" ? "✕" : ""}
-                </span>
+                </motion.span>
               )}
-              <span style={rail(i === last ? "transparent" : n < step ? "var(--ok)" : railAfter)} />
+              <motion.span
+                animate={{
+                  backgroundColor: i === last ? "transparent" : n < step ? "var(--ok)" : railAfter,
+                }}
+                transition={{ duration: 0.35 }}
+                style={rail(i === last ? "transparent" : n < step ? "var(--ok)" : railAfter)}
+              />
             </div>
-            <span
-              style={{
-                fontSize: compact ? 10 : 11,
-                fontWeight: kind === "pending" ? 400 : kind === "done" ? 450 : 600,
+            <motion.span
+              animate={{
                 color:
                   kind === "done"
                     ? "var(--text-2)"
@@ -96,15 +108,20 @@ export function PipelineTrack({
                       : kind === "active"
                         ? "var(--accent)"
                         : "var(--text-3)",
+              }}
+              transition={{ duration: 0.3 }}
+              style={{
+                fontSize: compact ? 10 : 11,
+                fontWeight: kind === "pending" ? 400 : kind === "done" ? 450 : 600,
                 textAlign: "center",
                 whiteSpace: "nowrap",
               }}
             >
               {label}
-            </span>
-          </div>
+            </motion.span>
+          </Anim>
         );
       })}
-    </div>
+    </Stagger>
   );
 }

@@ -55,7 +55,7 @@ export function AccountMenu() {
         align="end"
         sideOffset={8}
         style={{ width: 236 }}
-        className="anim-down rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
+        className="rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
       >
         <DropdownMenuLabel className="flex min-w-0 flex-col gap-px px-2 pt-2 pb-2.5">
           <span className="truncate text-xs font-semibold text-[var(--text)]">

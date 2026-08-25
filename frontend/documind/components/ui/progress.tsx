@@ -3,7 +3,11 @@
 import * as React from "react"
 import { Progress as ProgressPrimitive } from "radix-ui"
 
+import { motion } from "@/components/motion"
+import { SPRING } from "@/lib/motion"
 import { cn } from "@/lib/utils"
+
+const MotionIndicator = motion.create(ProgressPrimitive.Indicator)
 
 /**
  * DocuMind adds `indicatorClassName` / `indicatorStyle` because the canvas
@@ -29,10 +33,15 @@ function Progress({
       )}
       {...props}
     >
-      <ProgressPrimitive.Indicator
+      {/* Motion drives the fill so a value that changes mid-flight retargets
+          from wherever the bar currently is, rather than restarting. */}
+      <MotionIndicator
         data-slot="progress-indicator"
-        className={cn("size-full flex-1 bg-primary transition-all", indicatorClassName)}
-        style={{ ...indicatorStyle, transform: `translateX(-${100 - (value || 0)}%)` }}
+        className={cn("size-full flex-1 bg-primary", indicatorClassName)}
+        style={indicatorStyle}
+        initial={false}
+        animate={{ x: `-${100 - (value || 0)}%` }}
+        transition={SPRING.layout}
       />
     </ProgressPrimitive.Root>
   )

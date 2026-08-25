@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { InlineError } from "@/components/documind/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { EASED } from "@/lib/motion";
+import { Anim, AnimatePresence, Stagger, TypingDots, motion } from "@/components/motion";
 
 /**
  * The grounded-answer surface, shared by the workspace-wide Ask page and the
@@ -258,8 +260,8 @@ export function RichText({ text }: { text: string }) {
 /** The expanded passage behind a citation chip — the verification step. */
 export function SourceCard({ cite, onClose }: { cite: Cite; onClose: () => void }) {
   return (
-    <div
-      className="anim-down"
+    <Anim
+      preset="down"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -329,7 +331,7 @@ export function SourceCard({ cite, onClose }: { cite: Cite; onClose: () => void 
           </div>
         )}
       </div>
-    </div>
+    </Anim>
   );
 }
 
@@ -372,7 +374,7 @@ export function ChatThread({
     >
       {messages.map((m) =>
         m.role === "user" ? (
-          <div key={m.id} className="anim-up" style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Anim key={m.id} preset="right" style={{ display: "flex", justifyContent: "flex-end" }}>
             <div
               style={{
                 maxWidth: "78%",
@@ -401,9 +403,9 @@ export function ChatThread({
                 </span>
               )}
             </div>
-          </div>
+          </Anim>
         ) : (
-          <div key={m.id} className="anim-up" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Anim key={m.id} preset="left" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {m.status === "error" && m.error ? (
               <InlineError
                 title={m.error.title}
@@ -425,7 +427,9 @@ export function ChatThread({
                   >
                     <RichText text={m.text} />
                     {m.status === "streaming" && (
-                      <span
+                      <motion.span
+                        animate={{ opacity: [1, 1, 0.15, 0.15, 1] }}
+                        transition={{ duration: 1.05, repeat: Infinity, times: [0, 0.42, 0.5, 0.92, 1] }}
                         style={{
                           display: "inline-block",
                           width: 6,
@@ -433,7 +437,6 @@ export function ChatThread({
                           marginLeft: 2,
                           verticalAlign: "-2px",
                           background: "var(--accent)",
-                          animation: "blink 1.1s infinite",
                         }}
                       />
                     )}
@@ -442,21 +445,19 @@ export function ChatThread({
 
                 {(m.status === "thinking" || m.status === "streaming") && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ display: "inline-flex", gap: 3 }}>
-                      {[0, 0.2, 0.4].map((delay) => (
-                        <span
-                          key={delay}
-                          style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: "50%",
-                            background: "var(--accent)",
-                            animation: `blink 1.2s infinite ${delay}s`,
-                          }}
-                        />
-                      ))}
-                    </span>
-                    <span style={{ fontSize: 12, color: "var(--text-3)" }}>{m.thinkingLabel}</span>
+                    <TypingDots />
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.span
+                        key={m.thinkingLabel}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={EASED.fast}
+                        style={{ fontSize: 12, color: "var(--text-3)" }}
+                      >
+                        {m.thinkingLabel}
+                      </motion.span>
+                    </AnimatePresence>
                   </div>
                 )}
 
@@ -513,7 +514,7 @@ export function ChatThread({
                 )}
               </>
             )}
-          </div>
+          </Anim>
         ),
       )}
     </div>
@@ -611,10 +612,9 @@ export function ChatComposer({
 /** The card the thread and composer sit in — identical on both pages. */
 export function ChatPanel({ children }: { children: ReactNode }) {
   return (
-    <div
-      className="card anim-up"
+    <Anim
+      className="card"
       style={{
-        ["--i" as string]: 1,
         flex: 1,
         minHeight: 0,
         display: "flex",
@@ -623,7 +623,7 @@ export function ChatPanel({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-    </div>
+    </Anim>
   );
 }
 
@@ -673,8 +673,8 @@ export function ChatEmpty({
         padding: 32,
       }}
     >
-      <div
-        className="anim-pop"
+      <Anim
+        preset="pop"
         style={{
           width: 42,
           height: 42,
@@ -687,7 +687,7 @@ export function ChatEmpty({
         }}
       >
         {icon}
-      </div>
+      </Anim>
       <div
         style={{
           display: "flex",
@@ -703,18 +703,24 @@ export function ChatEmpty({
           {body}
         </span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 460 }}>
-        {suggestions.map((q, i) => (
-          <button
+      <Stagger
+        delay={0.12}
+        style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 460 }}
+      >
+        {suggestions.map((q) => (
+          <Anim
+            as="button"
             key={q}
-            className="hover-surface anim-up"
-            style={{ ...suggestionStyle, ["--i" as string]: i + 1 }}
+            className="hover-surface"
+            whileHover={{ x: 3 }}
+            whileTap={{ scale: 0.99 }}
+            style={suggestionStyle}
             onClick={() => onPick(q)}
           >
             {q}
-          </button>
+          </Anim>
         ))}
-      </div>
+      </Stagger>
     </div>
   );
 }
