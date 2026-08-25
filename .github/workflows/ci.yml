@@ -74,7 +74,7 @@ jobs:
             echo "list=${dirs[*]}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: aquasecurity/setup-trivy@v0.2.4
+      - uses: aquasecurity/setup-trivy@v0.2.6
       # setup-trivy@v0.2.2 does not exist and failed every run — use the
       # official installer instead.
       - name: Install Trivy
