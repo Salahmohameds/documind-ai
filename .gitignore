@@ -1,26 +1,26 @@
 # ---- Terraform ----
-.terraform/
-.terraform/*
-*.tfstate
-*.tfstate.*
-*.tfstate.backup
-tfplan
-tfplan-*
-*.tfplan
-crash.log
-crash.*.log
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
+**/.terraform/
+**/.terraform/*
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfstate.backup
+**/*.tfplan
+**/tfplan
+**/tfplan-*
+**/crash.log
+**/crash.*.log
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
 .terraformrc
 terraform.rc
 # tfvars: only *.tfvars.example may be committed
-*.tfvars
-!*.tfvars.example
+**/*.tfvars
+!**/*.tfvars.example
 # remote backend config: only backend.hcl.example may be committed
-backend.hcl
-!backend.hcl.example
+**/backend.hcl
+!**/backend.hcl.example
 
 # ---- Secrets / keys (never commit) ----
 *.pem
