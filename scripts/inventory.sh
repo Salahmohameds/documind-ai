@@ -41,7 +41,7 @@ grab node-pools     containerengine node-pool list
 grab load-balancers load-balancer load-balancer list
 grab instances      compute instance list
 grab buckets        os bucket list
-grab psql-systems   psql db-system list
+grab psql-systems   psql db-system-collection list-db-systems
 grab vaults         kms vault list
 
 {

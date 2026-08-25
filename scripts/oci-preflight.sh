@@ -13,6 +13,7 @@ set -euo pipefail
 
 COMPARTMENT="${OCI_COMPARTMENT_OCID:-}"
 REGION="${OCI_REGION:-}"
+TENANCY="${OCI_TENANCY_OCID:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -98,7 +99,10 @@ fi
 
 # ------------------------------------------- service availability (limits) -
 if command -v jq >/dev/null 2>&1; then
-  SERVICES=$(oci limits services list --all --query 'data[].name' -r 2>/dev/null | tr -d '[]",')
+  # NOTE: service catalog requires tenancy-scope read; some restricted users
+  # get ServiceError here — that becomes a WARN, not a FAIL.
+  SERVICES=$(oci limits service list --compartment-id "${TENANCY:-$COMPARTMENT}" \
+               --all --query 'data[].name' -r 2>/dev/null | tr -d '[]",')
   for svc in oke lbaas database objectstorage; do
     if echo "$SERVICES" | grep -qi "$svc"; then
       ok "Service available in limits catalog: $svc"
