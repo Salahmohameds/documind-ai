@@ -1,26 +1,14 @@
-# Object Storage Module — Outputs
-
-output "documents_bucket_name" {
-  description = "Name of the documents bucket."
-  value       = oci_objectstorage_bucket.documents.name
+output "bucket_names" {
+  description = "Map of logical bucket key => name."
+  value       = { for k, b in oci_objectstorage_bucket.this : k => b.name }
 }
 
-output "documents_bucket_id" {
-  description = "OCID of the documents bucket (namespace/bucket)."
-  value       = oci_objectstorage_bucket.documents.bucket_id
+output "documents_bucket_name" {
+  description = "Raw uploaded documents bucket."
+  value       = oci_objectstorage_bucket.this["documents"].name
 }
 
 output "processed_bucket_name" {
-  description = "Name of the processed data bucket."
-  value       = oci_objectstorage_bucket.processed.name
-}
-
-output "processed_bucket_id" {
-  description = "OCID of the processed data bucket."
-  value       = oci_objectstorage_bucket.processed.bucket_id
-}
-
-output "state_bucket_name" {
-  description = "Name of the Terraform state bucket (if created)."
-  value       = var.create_state_bucket ? oci_objectstorage_bucket.terraform_state[0].name : ""
+  description = "Processed artifacts bucket."
+  value       = oci_objectstorage_bucket.this["processed"].name
 }

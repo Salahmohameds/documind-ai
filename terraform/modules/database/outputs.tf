@@ -1,21 +1,24 @@
-# Database Module — Outputs
-
 output "db_system_id" {
-  description = "OCID of the PostgreSQL DB System."
-  value       = oci_psql_db_system.main.id
+  description = "PostgreSQL system OCID."
+  value       = oci_psql_db_system.this.id
 }
 
-output "db_system_fqdn" {
-  description = "FQDN of the database endpoint."
-  value       = oci_psql_db_system.main.network_details[0].primary_db_endpoint_private_ip
+output "admin_username" {
+  description = "Database administrator username."
+  value       = oci_psql_db_system.this.admin_username
 }
 
-output "db_system_port" {
-  description = "Database port."
-  value       = 5432
+output "state" {
+  description = "Database system lifecycle state."
+  value       = oci_psql_db_system.this.state
 }
 
-output "db_admin_username" {
-  description = "Admin username."
-  value       = var.db_admin_username
+output "instances" {
+  description = "Database node details (AD, private IP)."
+  value = [
+    for i in oci_psql_db_system.this.instances : {
+      display_name = i.display_name
+      private_ip   = try(i.private_ip, null)
+    }
+  ]
 }

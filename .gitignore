@@ -72,3 +72,7 @@ desktop.ini
 logs/
 tmp/
 .temp/
+
+# ---- Deployment artifacts (never commit) ----
+artifacts/
+*.tfbackend

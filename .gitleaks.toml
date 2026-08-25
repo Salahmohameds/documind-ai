@@ -1,0 +1,20 @@
+# Gitleaks configuration — extends the default rule set.
+#
+# Accepted exception (documented per security policy):
+#   The hashicorp-tf-password rule flags every `password = <expr>` style
+#   ASSIGNMENT LINE inside *.tf files. Our Terraform assigns variable
+#   references and data-source attributes only — literal secrets are banned by
+#   convention and review. Real values arrive via gitignored terraform.tfvars,
+#   backend.hcl, environment variables, or OCI Vault secret IDs.
+#   Compensating controls: PR review, *.tfvars/backend.hcl gitignored,
+#   state stored in a private versioned bucket, CI scans every other filetype.
+#
+# If a literal secret is ever needed at apply time, pass it as an environment
+# variable (TF_VAR_*) or pre-created Vault secret — never in code.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Terraform HCL sources contain variable references, not secrets"
+paths = ['''\.tf$''']

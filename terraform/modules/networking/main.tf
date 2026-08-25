@@ -1,22 +1,8 @@
+# VCN, gateways, per-subnet route tables / security lists / flow logs,
+# and workload NSGs. Everything is driven by locals maps — no copy-pasted
+# rule blocks. See locals.tf for the rule payloads.
 
-# DocuMind AI — Networking Module
-# Creates VCN, Subnets (4), Gateways (3), Route Tables (3), NSGs (4),
-# Security Lists (3)
-#
-# Architecture (from diagram):
-#   VCN — dm-vcn (10.20.0.0/16)
-#   ├── Public Subnet  — 10.20.1.0/24   (Load Balancer)
-#   ├── Private Subnet — 10.20.10.0/24  (OKE workers)
-#   ├── Private Subnet — 10.20.11.0/24  (OKE pods, VCN-native)
-#   └── Private Subnet — 10.20.30.0/24  (Data: DB, Redis, etc.)
-#
-#   Gateways: IGW (public ingress), NAT (private egress), SGW (OCI services)
-#   Route Tables: public (IGW), private (NAT+SGW), data (SGW only)
-#   NSGs: dm-nsg-lb, dm-nsg-oke-api, dm-nsg-workers, dm-nsg-data
-
-
-# ---------- Data Sources ----------
-data "oci_core_services" "all_services" {
+data "oci_core_services" "all_osn" {
   filter {
     name   = "name"
     values = ["All .* Services In Oracle Services Network"]
@@ -24,558 +10,265 @@ data "oci_core_services" "all_services" {
   }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# VCN
-# ═══════════════════════════════════════════════════════════════════════════════
-resource "oci_core_vcn" "main" {
+# ------------------------------------------------------------------- core --
+resource "oci_core_vcn" "this" {
   compartment_id = var.compartment_id
   display_name   = "${var.name_prefix}-vcn"
   cidr_blocks    = [var.vcn_cidr]
   dns_label      = var.vcn_dns_label
+  freeform_tags  = var.tags
 
-  freeform_tags = var.tags
+  lifecycle {
+    precondition {
+      condition     = local.subnets_within_vcn
+      error_message = "Every subnet CIDR must sit inside vcn_cidr."
+    }
+
+    precondition {
+      condition     = local.subnets_disjoint
+      error_message = "Subnet CIDRs must not overlap each other."
+    }
+  }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GATEWAYS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Internet Gateway — public ingress
-resource "oci_core_internet_gateway" "igw" {
+resource "oci_core_internet_gateway" "this" {
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
+  vcn_id         = oci_core_vcn.this.id
   display_name   = "${var.name_prefix}-igw"
   enabled        = true
-
-  freeform_tags = var.tags
+  freeform_tags  = var.tags
 }
 
-# NAT Gateway — private egress (patches, pulls, etc.)
-resource "oci_core_nat_gateway" "natgw" {
+resource "oci_core_nat_gateway" "this" {
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-natgw"
-  block_traffic  = false
-
-  freeform_tags = var.tags
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = "${var.name_prefix}-nat"
+  freeform_tags  = var.tags
 }
 
-# Service Gateway — OCI services (OCIR, Object Storage, GenAI) without internet
-resource "oci_core_service_gateway" "sgw" {
+# Private access to OCIR / Object Storage / GenAI without internet hairpins.
+resource "oci_core_service_gateway" "this" {
+  count = local.sgw_enabled ? 1 : 0
+
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
+  vcn_id         = oci_core_vcn.this.id
   display_name   = "${var.name_prefix}-sgw"
+  freeform_tags  = var.tags
 
   services {
-    service_id = data.oci_core_services.all_services.services[0].id
+    service_id = data.oci_core_services.all_osn.services[0].id
   }
-
-  freeform_tags = var.tags
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ROUTE TABLES (3)
-# ═══════════════════════════════════════════════════════════════════════════════
+# --------------------------------------------------------- route tables ----
+resource "oci_core_route_table" "this" {
+  for_each = var.subnets
 
-# Public route table — outbound via IGW
-resource "oci_core_route_table" "public" {
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-rt-public"
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = local.route_tables[each.key]
+  freeform_tags  = var.tags
 
-  route_rules {
-    destination       = "0.0.0.0/0"
-    destination_type  = "CIDR_BLOCK"
-    network_entity_id = oci_core_internet_gateway.igw.id
-  }
-
-  freeform_tags = var.tags
-}
-
-# Private route table — outbound via NAT, OCI services via SGW
-# Used by: OKE workers subnet, OKE pods subnet
-resource "oci_core_route_table" "private" {
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-rt-private"
-
-  route_rules {
-    destination       = "0.0.0.0/0"
-    destination_type  = "CIDR_BLOCK"
-    network_entity_id = oci_core_nat_gateway.natgw.id
-  }
-
-  route_rules {
-    destination       = data.oci_core_services.all_services.services[0].cidr_block
-    destination_type  = "SERVICE_CIDR_BLOCK"
-    network_entity_id = oci_core_service_gateway.sgw.id
-  }
-
-  freeform_tags = var.tags
-}
-
-# Data route table — SGW only, NO internet route (zero-trust)
-# Used by: data subnet (DB, Redis)
-resource "oci_core_route_table" "data" {
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-rt-data"
-
-  route_rules {
-    destination       = data.oci_core_services.all_services.services[0].cidr_block
-    destination_type  = "SERVICE_CIDR_BLOCK"
-    network_entity_id = oci_core_service_gateway.sgw.id
-  }
-
-  freeform_tags = var.tags
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECURITY LISTS (3) — subnet-level defaults
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Public security list (Load Balancer subnet)
-resource "oci_core_security_list" "public" {
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-sl-public"
-
-  # Ingress: HTTPS from internet
-  ingress_security_rules {
-    protocol  = "6" # TCP
-    source    = "0.0.0.0/0"
-    stateless = false
-    tcp_options {
-      min = 443
-      max = 443
+  dynamic "route_rules" {
+    for_each = each.value.route == "igw" ? [1] : []
+    content {
+      destination       = "0.0.0.0/0"
+      destination_type  = "CIDR_BLOCK"
+      network_entity_id = oci_core_internet_gateway.this.id
+      description       = "Default route to Internet Gateway"
     }
   }
 
-  # Ingress: HTTP from internet (redirect to HTTPS)
-  ingress_security_rules {
-    protocol  = "6"
-    source    = "0.0.0.0/0"
-    stateless = false
-    tcp_options {
-      min = 80
-      max = 80
+  dynamic "route_rules" {
+    for_each = each.value.route == "nat" ? [1] : []
+    content {
+      destination       = "0.0.0.0/0"
+      destination_type  = "CIDR_BLOCK"
+      network_entity_id = oci_core_nat_gateway.this.id
+      description       = "Default route to NAT Gateway"
     }
   }
 
-  # Egress: all
-  egress_security_rules {
-    protocol    = "all"
-    destination = "0.0.0.0/0"
-    stateless   = false
+  dynamic "route_rules" {
+    for_each = local.sgw_enabled && each.value.route != "igw" ? [1] : []
+    content {
+      destination       = data.oci_core_services.all_osn.services[0].cidr_block
+      destination_type  = "SERVICE_CIDR_BLOCK"
+      network_entity_id = oci_core_service_gateway.this[0].id
+      description       = "Oracle Services Network via Service Gateway"
+    }
   }
-
-  freeform_tags = var.tags
 }
 
-# Private security list (OKE workers + pods)
-resource "oci_core_security_list" "private_oke" {
+# -------------------------------------------------------- security lists ---
+resource "oci_core_security_list" "this" {
+  for_each = var.subnets
+
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-sl-private-oke"
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = local.sec_lists[each.key]
+  freeform_tags  = var.tags
 
-  # Ingress: all from VCN (inter-node, pod-to-pod)
-  ingress_security_rules {
-    protocol  = "all"
-    source    = var.vcn_cidr
-    stateless = false
-  }
+  dynamic "ingress_security_rules" {
+    for_each = local.sl_ingress_profiles[try(local.sl_profile_keys[each.key], "locked")]
+    content {
+      protocol    = ingress_security_rules.value.protocol
+      source      = ingress_security_rules.value.source
+      source_type = "CIDR_BLOCK"
+      description = ingress_security_rules.value.description
+      stateless   = false
 
-  # Ingress: ICMP path discovery
-  ingress_security_rules {
-    protocol  = "1" # ICMP
-    source    = "0.0.0.0/0"
-    stateless = false
-    icmp_options {
-      type = 3
-      code = 4
+      dynamic "tcp_options" {
+        for_each = ingress_security_rules.value.protocol == "6" && try(ingress_security_rules.value.min, null) != null ? [1] : []
+        content {
+          min = ingress_security_rules.value.min
+          max = ingress_security_rules.value.max
+        }
+      }
+
+      dynamic "icmp_options" {
+        for_each = ingress_security_rules.value.protocol == "1" && try(ingress_security_rules.value.icmp_type, null) != null ? [1] : []
+        content {
+          type = ingress_security_rules.value.icmp_type
+          code = try(ingress_security_rules.value.icmp_code, null)
+        }
+      }
     }
   }
 
-  # Egress: all
-  egress_security_rules {
-    protocol    = "all"
-    destination = "0.0.0.0/0"
-    stateless   = false
-  }
+  dynamic "egress_security_rules" {
+    for_each = local.sl_egress_profiles[try(local.sl_profile_keys[each.key], "locked")]
+    content {
+      protocol         = egress_security_rules.value.protocol
+      destination      = egress_security_rules.value.destination
+      destination_type = try(egress_security_rules.value.destination_type, "CIDR_BLOCK")
+      description      = egress_security_rules.value.description
+      stateless        = false
 
-  freeform_tags = var.tags
+      dynamic "tcp_options" {
+        for_each = egress_security_rules.value.protocol == "6" && try(egress_security_rules.value.min, null) != null ? [1] : []
+        content {
+          min = egress_security_rules.value.min
+          max = egress_security_rules.value.max
+        }
+      }
+    }
+  }
 }
 
-# Data security list (Database, Redis) — zero-trust
-resource "oci_core_security_list" "data" {
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-sl-data"
+# -------------------------------------------------------------- subnets ----
+resource "oci_core_subnet" "this" {
+  for_each = var.subnets
 
-  # Ingress: PostgreSQL from OKE workers only
-  ingress_security_rules {
-    protocol  = "6"
-    source    = var.subnet_cidrs["oke_workers"]
-    stateless = false
-    tcp_options {
-      min = 5432
-      max = 5432
-    }
-  }
-
-  # Ingress: Redis from OKE workers only
-  ingress_security_rules {
-    protocol  = "6"
-    source    = var.subnet_cidrs["oke_workers"]
-    stateless = false
-    tcp_options {
-      min = 6379
-      max = 6379
-    }
-  }
-
-  # Egress: OCI services only (via SGW)
-  egress_security_rules {
-    protocol         = "6"
-    destination      = data.oci_core_services.all_services.services[0].cidr_block
-    stateless        = false
-    destination_type = "SERVICE_CIDR_BLOCK"
-  }
-
-  freeform_tags = var.tags
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SUBNETS (4)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Public subnet — Load Balancer (10.20.1.0/24)
-resource "oci_core_subnet" "public_lb" {
   compartment_id             = var.compartment_id
-  vcn_id                     = oci_core_vcn.main.id
-  display_name               = "${var.name_prefix}-sn-public"
-  cidr_block                 = var.subnet_cidrs["public"]
-  dns_label                  = "pub"
-  prohibit_public_ip_on_vnic = false
-  route_table_id             = oci_core_route_table.public.id
-  security_list_ids          = [oci_core_security_list.public.id]
-
-  freeform_tags = var.tags
+  vcn_id                     = oci_core_vcn.this.id
+  display_name               = local.subnet_names[each.key]
+  cidr_block                 = each.value.cidr
+  dns_label                  = each.value.dns_label
+  prohibit_public_ip_on_vnic = each.value.private
+  route_table_id             = oci_core_route_table.this[each.key].id
+  security_list_ids          = [oci_core_security_list.this[each.key].id]
+  freeform_tags              = merge(var.tags, { Component = each.key })
 }
 
-# Private subnet — OKE Worker Nodes (10.20.10.0/24)
-resource "oci_core_subnet" "private_oke_workers" {
-  compartment_id             = var.compartment_id
-  vcn_id                     = oci_core_vcn.main.id
-  display_name               = "${var.name_prefix}-sn-private-oke-workers"
-  cidr_block                 = var.subnet_cidrs["oke_workers"]
-  dns_label                  = "okeworkers"
-  prohibit_public_ip_on_vnic = true
-  route_table_id             = oci_core_route_table.private.id
-  security_list_ids          = [oci_core_security_list.private_oke.id]
+# ------------------------------------------------------------------ NSGs ---
+resource "oci_core_network_security_group" "this" {
+  for_each = local.nsg_display_names
 
-  freeform_tags = var.tags
-}
-
-# Private subnet — OKE Pods / VCN-native (10.20.11.0/24)
-resource "oci_core_subnet" "private_oke_pods" {
-  compartment_id             = var.compartment_id
-  vcn_id                     = oci_core_vcn.main.id
-  display_name               = "${var.name_prefix}-sn-private-oke-pods"
-  cidr_block                 = var.subnet_cidrs["oke_pods"]
-  dns_label                  = "okepods"
-  prohibit_public_ip_on_vnic = true
-  route_table_id             = oci_core_route_table.private.id
-  security_list_ids          = [oci_core_security_list.private_oke.id]
-
-  freeform_tags = var.tags
-}
-
-# Private subnet — Data tier (10.20.30.0/24) — NO internet route
-resource "oci_core_subnet" "private_data" {
-  compartment_id             = var.compartment_id
-  vcn_id                     = oci_core_vcn.main.id
-  display_name               = "${var.name_prefix}-sn-private-data"
-  cidr_block                 = var.subnet_cidrs["data"]
-  dns_label                  = "data"
-  prohibit_public_ip_on_vnic = true
-  route_table_id             = oci_core_route_table.data.id
-  security_list_ids          = [oci_core_security_list.data.id]
-
-  freeform_tags = var.tags
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# NETWORK SECURITY GROUPS (4)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ─── NSG: Load Balancer (dm-nsg-lb) ──────────────────────────────────────────
-resource "oci_core_network_security_group" "lb" {
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-nsg-lb"
-
-  freeform_tags = var.tags
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = each.value
+  freeform_tags  = var.tags
 }
 
-# LB: ingress HTTPS 443 from internet
-resource "oci_core_network_security_group_security_rule" "lb_ingress_https" {
-  network_security_group_id = oci_core_network_security_group.lb.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = "0.0.0.0/0"
-  source_type               = "CIDR_BLOCK"
+resource "oci_core_network_security_group_security_rule" "this" {
+  for_each = local.nsg_rules
+
+  network_security_group_id = oci_core_network_security_group.this[each.value.nsg].id
+  direction                 = each.value.direction
+  protocol                  = each.value.protocol
+  description               = each.value.description
   stateless                 = false
 
-  tcp_options {
-    destination_port_range {
-      min = 443
-      max = 443
+  source           = each.value.direction == "INGRESS" ? (each.value.src_kind == "nsg" ? oci_core_network_security_group.this[each.value.src].id : each.value.src) : null
+  source_type      = each.value.direction == "INGRESS" ? (each.value.src_kind == "nsg" ? "NETWORK_SECURITY_GROUP" : "CIDR_BLOCK") : null
+  destination      = each.value.direction == "EGRESS" ? (each.value.dst_kind == "nsg" ? oci_core_network_security_group.this[each.value.dst].id : each.value.src) : null
+  destination_type = each.value.direction == "EGRESS" ? (each.value.dst_kind == "nsg" ? "NETWORK_SECURITY_GROUP" : (each.value.src_kind == "service" ? "SERVICE_CIDR_BLOCK" : "CIDR_BLOCK")) : null
+
+  dynamic "tcp_options" {
+    for_each = each.value.protocol == "6" && try(each.value.ports, null) != null ? [1] : []
+    content {
+      destination_port_range {
+        min = each.value.ports[0]
+        max = each.value.ports[1]
+      }
+    }
+  }
+
+  dynamic "icmp_options" {
+    for_each = each.value.protocol == "1" && try(each.value.icmp_type, null) != null ? [1] : []
+    content {
+      type = each.value.icmp_type
+      code = try(each.value.icmp_code, null)
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = each.value.direction != "INGRESS" || each.value.src_kind != "service"
+      error_message = "INGRESS service-CIDR sources are not used in this design; use cidr or nsg."
     }
   }
 }
 
-# LB: ingress HTTP 80 from internet (redirect)
-resource "oci_core_network_security_group_security_rule" "lb_ingress_http" {
-  network_security_group_id = oci_core_network_security_group.lb.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = "0.0.0.0/0"
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
+# ------------------------------------------------------------ flow logs ----
+resource "oci_logging_log_group" "flow" {
+  count = length(local.logged_subnets) > 0 ? 1 : 0
 
-  tcp_options {
-    destination_port_range {
-      min = 80
-      max = 80
-    }
-  }
-}
-
-# LB: egress to OKE workers (NodePort range)
-resource "oci_core_network_security_group_security_rule" "lb_egress_to_workers" {
-  network_security_group_id = oci_core_network_security_group.lb.id
-  direction                 = "EGRESS"
-  protocol                  = "6"
-  destination               = var.subnet_cidrs["oke_workers"]
-  destination_type          = "CIDR_BLOCK"
-  stateless                 = false
-
-  tcp_options {
-    destination_port_range {
-      min = 30000
-      max = 32767
-    }
-  }
-}
-
-# LB: egress to OKE workers (app ports 8080-8090 for health checks)
-resource "oci_core_network_security_group_security_rule" "lb_egress_healthcheck" {
-  network_security_group_id = oci_core_network_security_group.lb.id
-  direction                 = "EGRESS"
-  protocol                  = "6"
-  destination               = var.subnet_cidrs["oke_workers"]
-  destination_type          = "CIDR_BLOCK"
-  stateless                 = false
-
-  tcp_options {
-    destination_port_range {
-      min = 10256
-      max = 10256
-    }
-  }
-}
-
-# ─── NSG: OKE API Endpoint (dm-nsg-oke-api) ─────────────────────────────────
-resource "oci_core_network_security_group" "oke_api" {
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-nsg-oke-api"
-
-  freeform_tags = var.tags
+  display_name   = local.log_group_name
+  description    = "VCN flow logs for ${var.name_prefix}"
+  freeform_tags  = var.tags
 }
 
-# OKE API: ingress 6443 (kubectl access)
-resource "oci_core_network_security_group_security_rule" "oke_api_ingress_6443" {
-  network_security_group_id = oci_core_network_security_group.oke_api.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = "0.0.0.0/0"
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
+resource "oci_core_capture_filter" "flow" {
+  count = length(local.logged_subnets) > 0 ? 1 : 0
 
-  tcp_options {
-    destination_port_range {
-      min = 6443
-      max = 6443
-    }
-  }
-}
-
-# OKE API: ingress 12250 from workers (control plane communication)
-resource "oci_core_network_security_group_security_rule" "oke_api_ingress_12250" {
-  network_security_group_id = oci_core_network_security_group.oke_api.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = var.subnet_cidrs["oke_workers"]
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
-
-  tcp_options {
-    destination_port_range {
-      min = 12250
-      max = 12250
-    }
-  }
-}
-
-# OKE API: egress all
-resource "oci_core_network_security_group_security_rule" "oke_api_egress_all" {
-  network_security_group_id = oci_core_network_security_group.oke_api.id
-  direction                 = "EGRESS"
-  protocol                  = "all"
-  destination               = "0.0.0.0/0"
-  destination_type          = "CIDR_BLOCK"
-  stateless                 = false
-}
-
-# ─── NSG: OKE Workers (dm-nsg-workers) ───────────────────────────────────────
-resource "oci_core_network_security_group" "workers" {
   compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-nsg-workers"
+  display_name   = "${var.name_prefix}-flow-filter"
+  filter_type    = "FLOWLOG"
+  freeform_tags  = var.tags
 
-  freeform_tags = var.tags
+  flow_log_capture_filter_rules {
+    is_enabled    = true
+    priority      = 1
+    sampling_rate = 10
+    flow_log_type = "ALL"
+  }
 }
 
-# Workers: ingress from LB (NodePort range) — dm-nsg-lb only
-resource "oci_core_network_security_group_security_rule" "workers_ingress_nodeport" {
-  network_security_group_id = oci_core_network_security_group.workers.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = oci_core_network_security_group.lb.id
-  source_type               = "NETWORK_SECURITY_GROUP"
-  stateless                 = false
+resource "oci_logging_log" "flow" {
+  for_each = local.logged_subnets
 
-  tcp_options {
-    destination_port_range {
-      min = 30000
-      max = 32767
+  display_name       = "${local.subnet_names[each.key]}-flow-log"
+  log_group_id       = oci_logging_log_group.flow[0].id
+  log_type           = "SERVICE"
+  is_enabled         = true
+  retention_duration = var.log_retention_days
+  freeform_tags      = var.tags
+
+  configuration {
+    compartment_id = var.compartment_id
+
+    source {
+      category    = "all"
+      resource    = oci_core_subnet.this[each.key].id
+      service     = "flowlogs"
+      source_type = "OCISERVICE"
+
+      parameters = {
+        capture_filter = oci_core_capture_filter.flow[0].id
+      }
     }
   }
-}
-
-# Workers: ingress all from worker subnet (inter-node)
-resource "oci_core_network_security_group_security_rule" "workers_ingress_internal" {
-  network_security_group_id = oci_core_network_security_group.workers.id
-  direction                 = "INGRESS"
-  protocol                  = "all"
-  source                    = var.subnet_cidrs["oke_workers"]
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
-}
-
-# Workers: ingress all from pods subnet (VCN-native pod traffic)
-resource "oci_core_network_security_group_security_rule" "workers_ingress_pods" {
-  network_security_group_id = oci_core_network_security_group.workers.id
-  direction                 = "INGRESS"
-  protocol                  = "all"
-  source                    = var.subnet_cidrs["oke_pods"]
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
-}
-
-# Workers: ingress kubelet (10250) from API
-resource "oci_core_network_security_group_security_rule" "workers_ingress_kubelet" {
-  network_security_group_id = oci_core_network_security_group.workers.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = "0.0.0.0/0"
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
-
-  tcp_options {
-    destination_port_range {
-      min = 10250
-      max = 10250
-    }
-  }
-}
-
-# Workers: ingress ICMP path discovery
-resource "oci_core_network_security_group_security_rule" "workers_ingress_icmp" {
-  network_security_group_id = oci_core_network_security_group.workers.id
-  direction                 = "INGRESS"
-  protocol                  = "1"
-  source                    = "0.0.0.0/0"
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
-
-  icmp_options {
-    type = 3
-    code = 4
-  }
-}
-
-# Workers: egress all (NAT for patches, SGW for OCI services)
-resource "oci_core_network_security_group_security_rule" "workers_egress_all" {
-  network_security_group_id = oci_core_network_security_group.workers.id
-  direction                 = "EGRESS"
-  protocol                  = "all"
-  destination               = "0.0.0.0/0"
-  destination_type          = "CIDR_BLOCK"
-  stateless                 = false
-}
-
-# ─── NSG: Data tier (dm-nsg-data) ───────────────────────────────────────────
-resource "oci_core_network_security_group" "data" {
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.main.id
-  display_name   = "${var.name_prefix}-nsg-data"
-
-  freeform_tags = var.tags
-}
-
-# Data: ingress PostgreSQL 5432 from dm-nsg-workers ONLY
-resource "oci_core_network_security_group_security_rule" "data_ingress_pg" {
-  network_security_group_id = oci_core_network_security_group.data.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = oci_core_network_security_group.workers.id
-  source_type               = "NETWORK_SECURITY_GROUP"
-  stateless                 = false
-
-  tcp_options {
-    destination_port_range {
-      min = 5432
-      max = 5432
-    }
-  }
-}
-
-# Data: ingress Redis 6379 from dm-nsg-workers ONLY
-resource "oci_core_network_security_group_security_rule" "data_ingress_redis" {
-  network_security_group_id = oci_core_network_security_group.data.id
-  direction                 = "INGRESS"
-  protocol                  = "6"
-  source                    = oci_core_network_security_group.workers.id
-  source_type               = "NETWORK_SECURITY_GROUP"
-  stateless                 = false
-
-  tcp_options {
-    destination_port_range {
-      min = 6379
-      max = 6379
-    }
-  }
-}
-
-# Data: egress to OCI services only (backups, etc.)
-resource "oci_core_network_security_group_security_rule" "data_egress_services" {
-  network_security_group_id = oci_core_network_security_group.data.id
-  direction                 = "EGRESS"
-  protocol                  = "6"
-  destination               = data.oci_core_services.all_services.services[0].cidr_block
-  destination_type          = "SERVICE_CIDR_BLOCK"
-  stateless                 = false
 }

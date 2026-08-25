@@ -1,0 +1,64 @@
+# Terraform PR validation — fmt / validate / tflint / checkov. No apply, no
+# plan-with-credentials (PRs run without OCI auth; deploy runs in a gated
+# workflow). Paths are quoted because the repo previously lived under a
+# space-containing folder — keep quoting if paths ever contain spaces.
+
+name: terraform-pr
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-pr.yml"
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.15.8" # >= 1.12 required by the native oci backend
+
+jobs:
+  static:
+    name: fmt + validate + tflint + checkov
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Init (backend off)
+        run: terraform -chdir=bootstrap-state init -backend=false
+        # modules are validated through environments/demo below; bootstrap
+        # also pins the provider so the plugin cache is warm for both roots.
+
+      - name: Validate bootstrap-state
+        run: terraform -chdir=bootstrap-state validate
+
+      - name: Validate demo environment
+        run: |
+          cd environments/demo
+          terraform init -backend=false
+          terraform validate
+          terraform fmt -check -recursive .
+
+      - uses: terraform-linters/setup-tflint@v4
+
+      - name: tflint
+        working-directory: terraform
+        run: tflint --recursive
+
+      - name: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          soft_fail: false
+          # Accepted findings live in .checkov.yaml with documented rationale.

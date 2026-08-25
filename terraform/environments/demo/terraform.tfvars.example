@@ -1,0 +1,29 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+
+region         = "me-jeddah-1"
+compartment_id = "ocid1.compartment.oc1..<REPLACE_ME>"
+tenancy_ocid   = "ocid1.tenancy.oc1..<REPLACE_ME>"
+owner          = "cloud-lead@documind"
+
+# Your laptop IP — the Kubernetes API is NEVER world-open.
+admin_cidrs = ["203.0.113.7/32"]
+
+# Stage A (network only):  enable_oke = false
+# Stage B (cluster):       enable_oke = true (default)
+enable_oke = true
+
+# Minimal burst footprint; scale node_pools after quota is confirmed.
+# Workload identity requires ENHANCED_CLUSTER:
+#   oke_cluster_type = "ENHANCED_CLUSTER"
+
+enable_monitoring = true
+alert_emails      = ["you@example.com"]
+
+# Database is quota-sensitive: enable during the burst only if preflight PASS.
+enable_database = false
+db_password_mode = "PLAIN_TEXT" # throwaway demo; VAULT_SECRET preferred
+db_admin_password = "CHANGE-ME-12aA"
+
+# Private-endpoint mode (then reach kubectl via the bastion):
+#   oke_endpoint_public = false
+#   enable_bastion      = true

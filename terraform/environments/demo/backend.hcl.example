@@ -1,0 +1,11 @@
+# backend.hcl — copy to backend.hcl (gitignored) and fill in the namespace
+# output from terraform/bootstrap-state. Passed via:
+#   terraform init -backend-config=backend.hcl
+
+bucket                      = "documind-tfstate"
+namespace                   = "<NAMESPACE_FROM_BOOTSTRAP>"
+key                         = "documind/demo/terraform.tfstate"
+region                      = "me-jeddah-1"
+
+# Local auth: your ~/.oci/config profile.
+config_file_profile         = "DEFAULT"
