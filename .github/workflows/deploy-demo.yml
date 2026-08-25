@@ -23,14 +23,13 @@ concurrency:
   group: demo-deploy
   cancel-in-progress: false
 
-environment: demo
-
 env:
   TF_VERSION: "1.15.8"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: demo # required-reviewer approval gate
     defaults:
       run:
         working-directory: terraform/environments/demo

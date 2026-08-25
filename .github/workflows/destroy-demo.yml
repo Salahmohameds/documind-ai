@@ -14,14 +14,13 @@ concurrency:
   group: demo-deploy
   cancel-in-progress: false
 
-environment: demo # required-reviewer gate — same as deploy
-
 env:
   TF_VERSION: "1.15.8"
 
 jobs:
   destroy:
     runs-on: ubuntu-latest
+    environment: demo # required-reviewer approval gate
     defaults:
       run:
         working-directory: terraform/environments/demo
