@@ -1,0 +1,18 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="docmindStarGradient" x1="52" y1="204" x2="205" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F3DFF" />
+      <stop offset="0.46" stop-color="#1E9BFF" />
+      <stop offset="1" stop-color="#D175FF" />
+    </linearGradient>
+    <filter id="docmindStarShadow" x="8" y="8" width="240" height="240" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#1D4ED8" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <g filter="url(#docmindStarShadow)">
+    <rect x="28" y="108" width="200" height="40" rx="18" fill="url(#docmindStarGradient)" />
+    <rect x="28" y="108" width="200" height="40" rx="18" transform="rotate(60 128 128)" fill="url(#docmindStarGradient)" />
+    <rect x="28" y="108" width="200" height="40" rx="18" transform="rotate(-60 128 128)" fill="url(#docmindStarGradient)" />
+  </g>
+</svg>
