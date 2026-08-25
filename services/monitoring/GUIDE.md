@@ -129,5 +129,4 @@ to find the `EXTERNAL-IP`. The port is configured to `80` so you can just direct
 
 ### Grafana login
 
-- User: `admin`
-- Password: `ejada2026`
+Credentials will be shared privately.
