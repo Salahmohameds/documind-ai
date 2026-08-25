@@ -52,7 +52,8 @@ jobs:
       - uses: terraform-linters/setup-tflint@v4
 
       - name: tflint
-        run: tflint --recursive --chdir=terraform
+        working-directory: terraform
+        run: tflint --recursive
 
       - name: checkov
         uses: bridgecrewio/checkov-action@v12
