@@ -1,0 +1,72 @@
+# Manual, approval-gated demo teardown. Run ONLY after evidence capture
+# (docs/plan/EVIDENCE-CHECKLIST.md). Kubernetes Service/PVC resources must be
+# deleted first so the OCI load balancer and block volumes are released.
+
+name: destroy-demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-deploy
+  cancel-in-progress: false
+
+environment: demo # required-reviewer gate — same as deploy
+
+env:
+  TF_VERSION: "1.15.8"
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/environments/demo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Restore backend.hcl and credentials
+        run: |
+          printenv TF_BACKEND_HCL > backend.hcl
+          printenv OCI_CLI_KEY_CONTENT > oci_key.pem
+          chmod 600 oci_key.pem
+          echo "TF_VAR_private_key_path=$PWD/oci_key.pem" >> "$GITHUB_ENV"
+          echo "TF_VAR_config_file_profile=" >> "$GITHUB_ENV"
+        env:
+          TF_BACKEND_HCL: ${{ vars.TF_BACKEND_HCL }}
+          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+
+      - name: Init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Destroy plan (review what will die)
+        run: |
+          terraform plan -destroy -out=tfplan-destroy -no-color | tee plan-destroy.txt
+        env:
+          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-destroy-${{ github.sha }}
+          path: terraform/environments/demo/plan-destroy.txt
+
+      - name: Apply destroy
+        run: terraform apply tfplan-destroy
+        env:
+          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+
+      - name: Post-destroy verification hint
+        run: |
+          echo "Destroy complete. Verify the compartment is empty with:"
+          echo "  ../../scripts/inventory.sh --compartment \$OCI_COMPARTMENT_OCID"

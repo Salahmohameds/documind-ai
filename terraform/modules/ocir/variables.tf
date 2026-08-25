@@ -1,18 +1,26 @@
-# OCIR Module — Variables
-
 variable "compartment_id" {
-  description = "OCID of the compartment."
+  description = "Compartment OCID owning the repositories."
+  type        = string
+}
+
+variable "region" {
+  description = "Region key used to build full registry paths (e.g. me-jeddah-1)."
   type        = string
 }
 
 variable "repository_prefix" {
-  description = "Prefix for repository names (e.g. documind-dev)."
+  description = "Repository path prefix, conventionally the tenancy namespace (e.g. <namespace>/documind)."
   type        = string
+
+  validation {
+    condition     = var.repository_prefix != "" && !strcontains(var.repository_prefix, "//")
+    error_message = "repository_prefix must be non-empty and free of double slashes."
+  }
 }
 
 variable "service_names" {
-  description = "List of microservice names to create repos for."
-  type        = list(string)
+  description = "One immutable-tag repository per microservice."
+  type        = set(string)
   default = [
     "api-gateway",
     "document-service",
@@ -22,14 +30,18 @@ variable "service_names" {
   ]
 }
 
-variable "is_public" {
-  description = "Whether the repositories are public."
+variable "is_immutable" {
+  description = <<-EOT
+    Immutable repositories reject overwriting an existing tag. CI pushes
+    git-SHA tags, so immutability is safe and prevents accidental :latest
+    drift. Set false only for throwaway experiments.
+  EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
-variable "is_immutable" {
-  description = "Whether image tags are immutable."
+variable "is_public" {
+  description = "Public pull access. Keep false — images are pulled with node principals."
   type        = bool
   default     = false
 }

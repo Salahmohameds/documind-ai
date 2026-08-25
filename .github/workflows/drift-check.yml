@@ -1,0 +1,77 @@
+# Scheduled drift check: plans against remote state and reports differences.
+# Read-only — never applies. Exit code 2 from `plan -detailed-exitcode` means
+# drift (changes present outside Terraform).
+
+name: drift-check
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # daily 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: drift-check
+
+env:
+  TF_VERSION: "1.15.8"
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/environments/demo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Restore backend.hcl and credentials
+        run: |
+          printenv TF_BACKEND_HCL > backend.hcl
+          printenv OCI_CLI_KEY_CONTENT > oci_key.pem
+          chmod 600 oci_key.pem
+          echo "TF_VAR_private_key_path=$PWD/oci_key.pem" >> "$GITHUB_ENV"
+          echo "TF_VAR_config_file_profile=" >> "$GITHUB_ENV"
+        env:
+          TF_BACKEND_HCL: ${{ vars.TF_BACKEND_HCL }}
+          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+
+      - name: Plan (detect drift only)
+        id: drift
+        continue-on-error: true
+        run: |
+          terraform init -backend-config=backend.hcl
+          terraform plan -detailed-exitcode -no-color | tee drift-plan.txt
+        env:
+          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+
+      - name: Report drift
+        if: steps.drift.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = 'Drift detected in demo environment.\n\n```\n';
+            try { body += fs.readFileSync('terraform/environments/demo/drift-plan.txt','utf8').slice(0, 60000); }
+            catch (e) { body += 'plan output unavailable'; }
+            body += '\n```\nDrift is NOT auto-corrected. Investigate before the next deploy.';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[drift] demo environment changed outside Terraform (${new Date().toISOString().slice(0,10)})`,
+              labels: ['infrastructure', 'drift'],
+              body,
+            });
+
+      - name: No drift
+        if: steps.drift.outcome == 'success'
+        run: echo "No drift detected."

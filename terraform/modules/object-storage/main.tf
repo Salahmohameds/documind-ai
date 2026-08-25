@@ -1,54 +1,38 @@
-# DocuMind AI — Object Storage Module
-# Buckets for documents and processed data
+# Application buckets. The Terraform state bucket is NOT here — it is created
+# once by ../bootstrap-state so state never manages the bucket holding it.
 
-resource "oci_objectstorage_bucket" "documents" {
-  compartment_id = var.compartment_id
-  namespace      = var.object_storage_namespace
-  name           = "${var.name_prefix}-documents"
-  access_type    = "NoPublicAccess"
-  storage_tier   = "Standard"
-  versioning     = "Enabled"
-
-  freeform_tags = var.tags
+locals {
+  buckets = {
+    documents = { versioning = var.enable_versioning }
+    processed = { versioning = var.enable_versioning }
+  }
 }
 
-resource "oci_objectstorage_bucket" "processed" {
+resource "oci_objectstorage_bucket" "this" {
+  for_each = local.buckets
+
   compartment_id = var.compartment_id
-  namespace      = var.object_storage_namespace
-  name           = "${var.name_prefix}-processed"
+  namespace      = var.namespace
+  name           = "${var.name_prefix}-${each.key}"
   access_type    = "NoPublicAccess"
   storage_tier   = "Standard"
-  versioning     = "Disabled"
+  versioning     = each.value.versioning ? "Enabled" : "Disabled"
 
-  freeform_tags = var.tags
+  freeform_tags = merge(var.tags, { Component = each.key })
 }
 
-# Lifecycle rule — auto-delete incomplete multipart uploads after 7 days
-resource "oci_objectstorage_object_lifecycle_policy" "documents_lifecycle" {
-  namespace = var.object_storage_namespace
-  bucket    = oci_objectstorage_bucket.documents.name
+resource "oci_objectstorage_object_lifecycle_policy" "abort_multipart" {
+  for_each = local.buckets
+
+  namespace = var.namespace
+  bucket    = oci_objectstorage_bucket.this[each.key].name
 
   rules {
     name        = "abort-incomplete-multipart"
     action      = "ABORT"
-    time_amount = 7
+    time_amount = var.multipart_abort_days
     time_unit   = "DAYS"
     is_enabled  = true
-
-    target = "multipart-uploads"
+    target      = "multipart-uploads"
   }
-}
-
-# Optional: Terraform state bucket (if managing state in same project)
-resource "oci_objectstorage_bucket" "terraform_state" {
-  count = var.create_state_bucket ? 1 : 0
-
-  compartment_id = var.compartment_id
-  namespace      = var.object_storage_namespace
-  name           = "${var.name_prefix}-terraform-state"
-  access_type    = "NoPublicAccess"
-  storage_tier   = "Standard"
-  versioning     = "Enabled"
-
-  freeform_tags = var.tags
 }
