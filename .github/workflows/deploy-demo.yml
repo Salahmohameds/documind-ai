@@ -1,0 +1,110 @@
+# Gated demo deployment: plan -> review artifact -> apply.
+#
+# REQUIREMENTS BEFORE FIRST RUN (one-time, GitHub UI):
+#   1. Create environment "demo" with required-reviewer protection
+#      (Settings > Environments > demo > Required reviewers).
+#   2. Add repository secrets:
+#        OCI_CLI_TENANCY, OCI_CLI_USER, OCI_CLI_FINGERPRINT,
+#        OCI_CLI_KEY_CONTENT (PEM body)
+#   3. Add repository variable TF_BACKEND_HCL holding backend.hcl contents
+#      (bucket/namespace/key/region — no secrets inside).
+#
+# The exact reviewed plan file is what gets applied.
+
+name: deploy-demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-deploy
+  cancel-in-progress: false
+
+environment: demo
+
+env:
+  TF_VERSION: "1.15.8"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/environments/demo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Restore backend.hcl and credentials
+        run: |
+          printenv TF_BACKEND_HCL > backend.hcl
+          printenv OCI_CLI_KEY_CONTENT > oci_key.pem
+          chmod 600 oci_key.pem
+          echo "TF_VAR_private_key_path=$PWD/oci_key.pem" >> "$GITHUB_ENV"
+          echo "TF_VAR_config_file_profile=" >> "$GITHUB_ENV"
+        env:
+          TF_BACKEND_HCL: ${{ vars.TF_BACKEND_HCL }}
+          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+
+      - name: Init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Plan
+        id: plan
+        run: |
+          terraform plan -out=tfplan -no-color | tee plan.txt
+        env:
+          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+
+      - name: Upload plan artifact (review evidence)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.sha }}
+          path: |
+            terraform/environments/demo/tfplan
+            terraform/environments/demo/plan.txt
+
+      - name: Deployment metadata
+        run: |
+          cat > deployment.json <<EOF
+          {
+            "project": "DocuMind-AI",
+            "environment": "demo",
+            "git_sha": "${GITHUB_SHA}",
+            "branch": "${GITHUB_REF_NAME}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "terraform_version": "${TF_VERSION}",
+            "trigger": "workflow_dispatch",
+            "status": "planned",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat deployment.json
+
+      - name: Apply reviewed plan
+        run: terraform apply -auto-approve tfplan
+        env:
+          OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+
+      - name: Outputs snapshot
+        run: |
+          terraform output -json > outputs.json
+          cat outputs.json
+
+      - name: Upload metadata + outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-evidence-${{ github.sha }}
+          path: |
+            terraform/environments/demo/deployment.json
+            terraform/environments/demo/outputs.json

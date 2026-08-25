@@ -75,9 +75,13 @@ jobs:
           fi
 
       - uses: aquasecurity/setup-trivy@v0.2.4
+      # setup-trivy@v0.2.2 does not exist and failed every run — use the
+      # official installer instead.
+      - name: Install Trivy
         if: steps.imgs.outputs.none == 'false'
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
-      - name: Build and scan each changed service
+      - name: Build and scan each service image
         if: steps.imgs.outputs.none == 'false'
         run: |
           for d in ${{ steps.imgs.outputs.list }}; do
@@ -93,6 +97,9 @@ jobs:
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks reads PR commits; missing grant = 403
     steps:
       - uses: actions/checkout@v4
         with:

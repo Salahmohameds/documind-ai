@@ -1,0 +1,50 @@
+[PAGE 1]
+SERVICE AGREEMENT
+
+This Service Agreement ("Agreement") is entered into between Company A
+("Provider") and Company B ("Client"), collectively the "Parties."
+
+1. TERM
+This Agreement shall commence on 2026-01-01 and shall remain in effect
+until 2026-12-31, unless terminated earlier in accordance with Section 5.
+
+2. SCOPE OF SERVICES
+Provider shall deliver cloud architecture consulting, document intelligence
+platform development, and ongoing infrastructure support as described in
+Exhibit A.
+
+[PAGE 2]
+3. FEES AND PAYMENT TERMS
+Client shall pay Provider according to the fee schedule in Exhibit B.
+Payment is due within 60 days of receipt of a valid invoice. Late payments
+shall accrue interest at a rate of 1.5% per month.
+
+4. AUTOMATIC RENEWAL
+This Agreement shall automatically renew for successive one-year terms
+unless either Party provides written notice of non-renewal at least 30
+days prior to the end of the then-current term.
+
+[PAGE 3]
+5. TERMINATION
+Either Party may terminate this Agreement for cause upon 15 days written
+notice if the other Party materially breaches this Agreement and fails to
+cure such breach within the notice period. Client may terminate for
+convenience with 30 days written notice.
+
+6. LIABILITY
+Provider's total liability under this Agreement shall not exceed the total
+fees paid by Client in the twelve (12) months preceding the claim. Neither
+Party shall be liable for indirect, incidental, or consequential damages.
+
+[PAGE 4]
+7. CONFIDENTIALITY
+Each Party agrees to maintain the confidentiality of the other Party's
+proprietary information disclosed during the term of this Agreement, and
+for a period of two (2) years following termination.
+
+8. GOVERNING LAW
+This Agreement shall be governed by the laws of the applicable jurisdiction
+as specified in Exhibit C, without regard to conflict of law principles.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the
+date first written above.

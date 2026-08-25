@@ -1,64 +1,66 @@
-# Monitoring Module — Variables
-
 variable "compartment_id" {
-  description = "OCID of the compartment."
+  description = "Compartment OCID for topics, subscriptions and alarms."
   type        = string
 }
 
 variable "name_prefix" {
-  description = "Prefix for resource names."
+  description = "Naming prefix."
   type        = string
 }
 
 variable "alert_emails" {
-  description = "List of email addresses for alert notifications."
-  type        = list(string)
+  description = "Email addresses subscribed to the alert topic (confirm opt-in from inbox)."
+  type        = set(string)
   default     = []
 }
 
-variable "oke_cluster_id" {
-  description = "OCID of the OKE cluster."
-  type        = string
-}
-
-variable "oke_node_pool_id" {
-  description = "OCID of the OKE node pool."
-  type        = string
-}
-
-variable "subnet_oke_id" {
-  description = "OCID of the OKE subnet (for VCN flow logs)."
-  type        = string
-}
-
-variable "enable_lb_monitoring" {
-  description = "Whether to enable Load Balancer alarms and access logs."
-  type        = bool
-  default     = true
-}
-
-variable "lb_id" {
-  description = "OCID of the Load Balancer. Empty = skip LB monitoring."
-  type        = string
-  default     = ""
-}
-
-variable "cpu_threshold" {
-  description = "CPU utilization threshold (%) for alarm."
-  type        = number
-  default     = 80
-}
-
-variable "memory_threshold" {
-  description = "Memory utilization threshold (%) for alarm."
+variable "cpu_threshold_percent" {
+  description = "Aggregate worker-node CPU threshold (%)."
   type        = number
   default     = 85
+
+  validation {
+    condition     = var.cpu_threshold_percent > 0 && var.cpu_threshold_percent <= 100
+    error_message = "cpu_threshold_percent must be 1-100."
+  }
 }
 
-variable "lb_error_threshold" {
-  description = "5xx error count threshold for LB alarm."
+variable "memory_threshold_percent" {
+  description = "Aggregate worker-node memory threshold (%)."
   type        = number
-  default     = 10
+  default     = 90
+
+  validation {
+    condition     = var.memory_threshold_percent > 0 && var.memory_threshold_percent <= 100
+    error_message = "memory_threshold_percent must be 1-100."
+  }
+}
+
+variable "lb_5xx_threshold" {
+  description = "LB 5xx responses per 5 minutes before alarming. Requires lb_ocid."
+  type        = number
+  default     = 5
+}
+
+variable "lb_ocid" {
+  description = <<-EOT
+    OCID of a Terraform-managed load balancer for LB alarms. Kubernetes-owned
+    Service LBs are unknown to Terraform — leave null and add the OCID to
+    tfvars after first deploy if you want LB alarms.
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "pending_minutes" {
+  description = "Minutes a metric must breach before the alarm fires."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = contains([1, 5, 15], var.pending_minutes)
+    error_message = "pending_minutes must be 1, 5 or 15 (PT1M/PT5M/PT15M)."
+  }
 }
 
 variable "tags" {

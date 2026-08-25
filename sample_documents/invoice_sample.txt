@@ -1,0 +1,23 @@
+INVOICE
+
+Vendor: ABC Corp
+Invoice Number: INV-1024
+Bill To: DocuMind Client Ltd.
+
+Description of Services:
+Cloud infrastructure consulting for Q3 2026, including architecture review
+and Kubernetes deployment support.
+
+Subtotal: 14,000 EGP
+Tax (7%): 980 EGP
+Total: 15,000 EGP
+Currency: EGP
+
+Due Date: 2026-09-01
+Payment Terms: Net 30 days from invoice date.
+
+Please remit payment via bank transfer to the account listed in the
+attached remittance details. Late payments beyond 30 days will incur a
+2% monthly interest charge.
+
+For questions regarding this invoice, contact billing@abccorp.example.com.

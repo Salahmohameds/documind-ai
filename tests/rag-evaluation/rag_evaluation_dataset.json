@@ -1,0 +1,142 @@
+[
+  {
+    "id": "q1",
+    "question": "What are the payment terms in the contract?",
+    "expected_answer": "Payment is due within 60 days of receipt of a valid invoice.",
+    "expected_document": "contract_sample",
+    "expected_page": 2
+  },
+  {
+    "id": "q2",
+    "question": "Does the contract automatically renew?",
+    "expected_answer": "Yes, it automatically renews for successive one-year terms unless either party gives 30 days written notice of non-renewal.",
+    "expected_document": "contract_sample",
+    "expected_page": 2
+  },
+  {
+    "id": "q3",
+    "question": "How many days notice is required to terminate the contract for cause?",
+    "expected_answer": "15 days written notice, with a cure period.",
+    "expected_document": "contract_sample",
+    "expected_page": 3
+  },
+  {
+    "id": "q4",
+    "question": "How many days notice does the client need to terminate for convenience?",
+    "expected_answer": "30 days written notice.",
+    "expected_document": "contract_sample",
+    "expected_page": 3
+  },
+  {
+    "id": "q5",
+    "question": "What is the interest rate on late payments under the contract?",
+    "expected_answer": "1.5% per month.",
+    "expected_document": "contract_sample",
+    "expected_page": 2
+  },
+  {
+    "id": "q6",
+    "question": "What is the cap on Provider's liability?",
+    "expected_answer": "Total liability shall not exceed the total fees paid by Client in the twelve months preceding the claim.",
+    "expected_document": "contract_sample",
+    "expected_page": 3
+  },
+  {
+    "id": "q7",
+    "question": "How long does the confidentiality obligation last after termination?",
+    "expected_answer": "Two years following termination.",
+    "expected_document": "contract_sample",
+    "expected_page": 4
+  },
+  {
+    "id": "q8",
+    "question": "When does the service agreement start and end?",
+    "expected_answer": "It commences on 2026-01-01 and remains in effect until 2026-12-31.",
+    "expected_document": "contract_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q9",
+    "question": "Who are the parties to the contract?",
+    "expected_answer": "Company A (Provider) and Company B (Client).",
+    "expected_document": "contract_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q10",
+    "question": "What law governs the agreement?",
+    "expected_answer": "The laws of the jurisdiction specified in Exhibit C.",
+    "expected_document": "contract_sample",
+    "expected_page": 4
+  },
+  {
+    "id": "q11",
+    "question": "What is the total amount due on the invoice?",
+    "expected_answer": "15,000 EGP.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q12",
+    "question": "Who is the vendor on the invoice?",
+    "expected_answer": "ABC Corp.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q13",
+    "question": "What is the invoice number?",
+    "expected_answer": "INV-1024.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q14",
+    "question": "When is the invoice due?",
+    "expected_answer": "2026-09-01, Net 30 days from invoice date.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q15",
+    "question": "What happens if the invoice is paid late?",
+    "expected_answer": "A 2% monthly interest charge applies to payments beyond 30 days.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q16",
+    "question": "What currency is the invoice in?",
+    "expected_answer": "EGP.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q17",
+    "question": "What services does the invoice cover?",
+    "expected_answer": "Cloud infrastructure consulting for Q3 2026, including architecture review and Kubernetes deployment support.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q18",
+    "question": "What tax was applied to the invoice?",
+    "expected_answer": "7% tax, amounting to 980 EGP.",
+    "expected_document": "invoice_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q19",
+    "question": "What scope of services does the Provider deliver under the contract?",
+    "expected_answer": "Cloud architecture consulting, document intelligence platform development, and ongoing infrastructure support as described in Exhibit A.",
+    "expected_document": "contract_sample",
+    "expected_page": 1
+  },
+  {
+    "id": "q20",
+    "question": "Are indirect or consequential damages covered under the contract?",
+    "expected_answer": "No, neither party is liable for indirect, incidental, or consequential damages.",
+    "expected_document": "contract_sample",
+    "expected_page": 3
+  }
+]

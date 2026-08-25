@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars and fill in. Never commit terraform.tfvars.
+# Region must match where you want the bucket (team region: me-jeddah-1).
+region           = "me-jeddah-1"
+compartment_ocid = "ocid1.compartment.oc1..<REPLACE_ME>"

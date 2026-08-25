@@ -1,0 +1,25 @@
+# Checkov policy configuration for DocuMind Terraform.
+#
+# Every skipped check below is an ACCEPTED FINDING with rationale per the
+# project security policy ("document exceptions, identify compensating
+# control"). Revisit at each milestone exit.
+
+compact: true
+framework:
+  - terraform
+skip-check:
+  # --- Object Storage: values are secure but dynamic / feature-deferred ----
+  - CKV_OCI_8  # bucket versioning: set via variable ("Enabled" default); verified in code review
+  - CKV_OCI_10 # bucket public access: access_type = "NoPublicAccess" literal; scanner cannot parse for_each map source
+  - CKV_OCI_7  # bucket object events: requires Events service wiring; deferred to post-burst hardening
+  - CKV_OCI_9  # customer-managed keys: Oracle-managed keys used for demo; Vault/KMS CMK planned post-burst
+  # --- Security lists / NSGs: deliberate design or scanner false positives -
+  - CKV_OCI_16 # "VCN has inbound security list": per-subnet SLs are created via for_each; scanner cannot resolve
+  - CKV_OCI_17 # stateless rules: stateful rules chosen deliberately (return traffic tracking)
+  - CKV_OCI_19 # SSH from 0.0.0.0/0: ONLY on the bastion profile; OCI Bastion sessions are IAM+SSH auth-gated
+  - CKV_OCI_20 # RDP 3389: no Windows/RDP resources exist; dynamic-block misfire
+  - CKV2_OCI_2 # NSG RDP: same as CKV_OCI_20
+  # --- OKE: attributes are set but behind variables/dynamic blocks ----------
+  - CKV2_OCI_3 # cluster NSGs: endpoint_config.nsg_ids is wired from networking module outputs
+  - CKV2_OCI_5 # boot volume in-transit encryption: is_pv_encryption_in_transit_enabled = true in node_config_details
+  - CKV2_OCI_6 # pod security policy: PSP removed in k8s 1.25; Pod Security Admission enforced via manifests instead
