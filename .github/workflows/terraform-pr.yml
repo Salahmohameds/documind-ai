@@ -61,4 +61,4 @@ jobs:
           directory: terraform/
           framework: terraform
           soft_fail: false
-          skip_check: CKV_OCI_1 # tune documented exceptions here with justification
+          # Accepted findings live in .checkov.yaml with documented rationale.
