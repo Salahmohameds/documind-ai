@@ -13,6 +13,9 @@ import {
   hash,
   mockError,
 } from "@/lib/mock/data";
+import { corpus, invalidateCorpus, suggestions } from "@/lib/search/corpus";
+import { scoreEntry, snippetAround, tokenize, type Indexed } from "@/lib/search/rank";
+import { KIND_LABEL, KIND_ORDER, type SearchGroup, type SearchKind, type SearchResponse } from "@/lib/search/types";
 import type {
   ChatScope,
   Dashboard,
@@ -320,6 +323,7 @@ export async function reprocessDocuments(ids: string[]): Promise<BulkResult> {
     succeeded.push(id);
   }
 
+  if (succeeded.length) invalidateCorpus();
   return { requested: ids.length, succeeded, failed };
 }
 
@@ -339,6 +343,7 @@ export async function deleteDocuments(ids: string[]): Promise<BulkResult> {
   }
 
   documents = documents.filter((d) => !succeeded.includes(d.id));
+  invalidateCorpus();
   return { requested: ids.length, succeeded, failed };
 }
 
@@ -363,6 +368,9 @@ export function tickProcessing(): void {
       doc.verdict = doc.risk >= 60 ? "Needs review" : "Auto-approved";
       doc.flags = Math.max(0, Math.round(doc.risk / 24));
       doc.progress = undefined;
+      // Only this transition changes what search can return; invalidating on
+      // every tick would rebuild the index several times a second.
+      invalidateCorpus();
     }
   }
 }
@@ -427,6 +435,7 @@ export function commitUpload(name: string, sizeMb: number, type: DocType): Docum
     verdict: risk >= 60 ? "Needs review" : "Auto-approved",
   };
   documents = [doc, ...documents];
+  invalidateCorpus();
   return doc;
 }
 
@@ -498,4 +507,155 @@ export async function askWorkspace(
 /** The blocks that make up one page of the document reader. */
 export function getPage(page: number): SourceBlock[] {
   return QA_PAGES[page] ?? QA_FALLBACK;
+}
+
+/* -- Global search ------------------------------------------------------- */
+
+/**
+ * The one entry point for the command palette.
+ *
+ * The index lives behind this function, never in a component: the caller sends
+ * a query string and receives only the ranked page of hits it is about to
+ * render — never the corpus. Replacing the body with
+ * `fetch("/api/search?q=…")` is therefore a local change, and the palette,
+ * ranking contract and result shapes all stay exactly as they are.
+ *
+ * Latency is kept far below `BASE_LATENCY`: search is typed-into, so it has to
+ * feel like a local index even while it is one.
+ */
+const SEARCH_LATENCY = 90;
+
+/** Trimmed per group so no single kind can crowd out the others. */
+const GROUP_CAP: Record<SearchKind, number> = {
+  page: 4,
+  document: 6,
+  section: 5,
+  finding: 4,
+  field: 4,
+};
+
+const TOTAL_CAP = 20;
+
+export async function searchWorkspace(
+  query: string,
+  opts: { simulate?: Simulate; signal?: AbortSignal } = {},
+): Promise<SearchResponse> {
+  const started = Date.now();
+  const simulate = opts.simulate ?? "ok";
+
+  await sleep(
+    simulate === "slow" ? 2200 : SEARCH_LATENCY + Math.random() * 70,
+    opts.signal,
+  );
+  fail(simulate, [
+    "Search is unavailable",
+    "The search index did not respond. Your documents are unaffected — this view will recover on retry.",
+    "ERR_SEARCH_UNAVAILABLE",
+  ]);
+
+  const q = query.trim();
+  const source = simulate === "empty" ? [] : documents;
+
+  // No query: offer destinations and what changed most recently, rather than
+  // an empty box the user has to guess their way out of.
+  if (q === "") {
+    const entries = suggestions(source);
+    return {
+      query: "",
+      groups: groupHits(entries.map((e) => ({ entry: e, score: e.weight ?? 0 })), []),
+      total: entries.length,
+      tookMs: Date.now() - started,
+      suggested: true,
+    };
+  }
+
+  const terms = tokenize(q);
+  const scored: { entry: Indexed; score: number }[] = [];
+
+  for (const entry of corpus(source)) {
+    const score = scoreEntry(entry, terms);
+    if (score > 0) scored.push({ entry, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title));
+
+  return {
+    query: q,
+    groups: groupHits(scored, terms),
+    total: scored.length,
+    tookMs: Date.now() - started,
+    suggested: false,
+  };
+}
+
+/** Buckets by kind in display order, deduping, then capping each and the whole. */
+function groupHits(
+  scored: { entry: Indexed; score: number }[],
+  terms: string[],
+): SearchGroup[] {
+  const byKind = new Map<SearchKind, { entry: Indexed; score: number; also: number }[]>();
+  // Findings and fields come from analysis fixtures shared across documents,
+  // so the same title legitimately appears many times. Showing it once with a
+  // count reads as a finding about the corpus; showing it eight times reads as
+  // a broken palette. `scored` is already sorted, so the first is the best.
+  const collapsed = new Map<string, { entry: Indexed; score: number; also: number }>();
+
+  for (const s of scored) {
+    const collapsible = s.entry.kind === "finding" || s.entry.kind === "field";
+    const key = collapsible ? `${s.entry.kind}:${s.entry.lc.title}` : s.entry.id;
+
+    const seen = collapsed.get(key);
+    if (seen) {
+      seen.also += 1;
+      continue;
+    }
+    const row = { entry: s.entry, score: s.score, also: 0 };
+    collapsed.set(key, row);
+
+    const list = byKind.get(s.entry.kind);
+    if (list) list.push(row);
+    else byKind.set(s.entry.kind, [row]);
+  }
+
+  const groups: SearchGroup[] = [];
+  let budget = TOTAL_CAP;
+
+  for (const kind of KIND_ORDER) {
+    const list = byKind.get(kind);
+    if (!list || list.length === 0 || budget <= 0) continue;
+
+    const take = Math.min(GROUP_CAP[kind], list.length, budget);
+    budget -= take;
+
+    groups.push({
+      kind,
+      label: KIND_LABEL[kind],
+      more: list.length - take,
+      hits: list.slice(0, take).map(({ entry, score, also }) => ({
+        id: entry.id,
+        kind: entry.kind,
+        title: entry.title,
+        subtitle: entry.subtitle,
+        snippet: bodySnippet(entry, terms),
+        meta: entry.meta,
+        tone: entry.tone,
+        href: entry.href,
+        also: also || undefined,
+        score,
+      })),
+    });
+  }
+
+  return groups;
+}
+
+/**
+ * Only attach a snippet when the body is what matched — repeating a clause
+ * under a title the user already matched on is noise, not context.
+ */
+function bodySnippet(entry: Indexed, terms: string[]): string | undefined {
+  if (!entry.body || terms.length === 0) return undefined;
+  const inBody = terms.some((t) => entry.lc.body.includes(t));
+  if (!inBody) return undefined;
+  return snippetAround(entry.body, terms);
 }

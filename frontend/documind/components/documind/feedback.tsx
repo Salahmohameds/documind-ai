@@ -3,39 +3,16 @@
 import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
 import type { Tone } from "@/lib/design";
 import { Button } from "@/components/ui/button";
+import { Anim, AnimatePresence, Spinner, motion } from "@/components/motion";
+import { PRESETS, SPRING } from "@/lib/motion";
+
+export { Spinner };
 
 /**
  * The shared state surfaces — spinner, empty, error, toast, confirm. Every
  * screen renders its non-happy states through these so the visual language
  * stays identical across pages.
  */
-
-/* -- Spinner ------------------------------------------------------------ */
-
-export function Spinner({
-  size = 16,
-  color = "var(--accent)",
-  track = "var(--accent-border)",
-}: {
-  size?: number;
-  color?: string;
-  track?: string;
-}) {
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        flex: "none",
-        borderRadius: "50%",
-        border: `${Math.max(1.5, size / 9)}px solid ${track}`,
-        borderTopColor: color,
-        animation: "spin .8s linear infinite",
-        display: "inline-block",
-      }}
-    />
-  );
-}
 
 /* -- Empty / error panels ----------------------------------------------- */
 
@@ -69,9 +46,11 @@ export function EmptyPanel({
   compact?: boolean;
 }) {
   return (
-    <div className="card anim-up" style={{ ...panelStyle, minHeight: compact ? 220 : 380 }}>
-      <div
-        className="anim-pop"
+    <Anim className="card" style={{ ...panelStyle, minHeight: compact ? 220 : 380 }}>
+      <Anim
+        as="div"
+        preset="pop"
+        delay={0.06}
         style={{
           width: 44,
           height: 44,
@@ -86,7 +65,7 @@ export function EmptyPanel({
         }}
       >
         {glyph}
-      </div>
+      </Anim>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, maxWidth: 460 }}>
         <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>{title}</span>
         <span style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text-2)", textWrap: "pretty" }}>{body}</span>
@@ -95,7 +74,7 @@ export function EmptyPanel({
       {footnote && (
         <div style={{ display: "flex", alignItems: "center", gap: 16, paddingTop: 4 }}>{footnote}</div>
       )}
-    </div>
+    </Anim>
   );
 }
 
@@ -117,8 +96,7 @@ export function ErrorPanel({
   compact?: boolean;
 }) {
   return (
-    <div
-      className="anim-up"
+    <Anim
       style={{
         ...panelStyle,
         minHeight: compact ? 200 : 380,
@@ -129,8 +107,10 @@ export function ErrorPanel({
       }}
       role="alert"
     >
-      <div
-        className="anim-pop"
+      <Anim
+        as="div"
+        preset="pop"
+        delay={0.06}
         style={{
           width: 44,
           height: 44,
@@ -145,7 +125,7 @@ export function ErrorPanel({
         }}
       >
         ✕
-      </div>
+      </Anim>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, maxWidth: 480 }}>
         <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>{title}</span>
         <span style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text-2)", textWrap: "pretty" }}>{detail}</span>
@@ -164,7 +144,7 @@ export function ErrorPanel({
           {code}
         </span>
       )}
-    </div>
+    </Anim>
   );
 }
 
@@ -183,8 +163,8 @@ export function InlineError({
   tone?: Tone;
 }) {
   return (
-    <div
-      className="anim-down"
+    <Anim
+      preset="down"
       style={{
         display: "flex",
         gap: 10,
@@ -212,7 +192,7 @@ export function InlineError({
           Retry
         </Button>
       )}
-    </div>
+    </Anim>
   );
 }
 
@@ -254,11 +234,16 @@ export function useToasts() {
   return { toasts, push, update, dismiss };
 }
 
+/**
+ * Toasts stack, slide in from the right edge, and — the part CSS couldn't do —
+ * animate *out* when dismissed, with the survivors sliding up to close the gap
+ * via `layout`.
+ */
 export function Toaster({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  if (toasts.length === 0) return null;
   return (
     <div
       style={{
+        pointerEvents: toasts.length ? "auto" : "none",
         position: "fixed",
         right: 20,
         bottom: 72,
@@ -269,11 +254,17 @@ export function Toaster({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
         width: 340,
       }}
     >
-      {toasts.map((t) => (
-        <div
+      <AnimatePresence initial={false}>
+        {toasts.map((t) => (
+        <motion.div
           key={t.id}
           role="status"
-          className="anim-slide"
+          layout
+          variants={PRESETS.toast}
+          initial="hidden"
+          animate="show"
+          exit="exit"
+          transition={SPRING.soft}
           style={{
             display: "flex",
             alignItems: "flex-start",
@@ -325,8 +316,9 @@ export function Toaster({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
           >
             ✕
           </button>
-        </div>
-      ))}
+        </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
@@ -354,10 +346,14 @@ export function ConfirmDialog({
   onCancel: () => void;
   children?: ReactNode;
 }) {
-  if (!open) return null;
   return (
-    <div
-      className="anim-fade"
+    <AnimatePresence>
+      {open && (
+    <motion.div
+      variants={PRESETS.overlay}
+      initial="hidden"
+      animate="show"
+      exit="exit"
       style={{
         position: "fixed",
         inset: 0,
@@ -370,10 +366,10 @@ export function ConfirmDialog({
       }}
       onClick={pending ? undefined : onCancel}
     >
-      <div
+      <motion.div
         role="alertdialog"
         aria-modal
-        className="anim-up"
+        variants={PRESETS.dialog}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 440,
@@ -429,8 +425,10 @@ export function ConfirmDialog({
             {pending ? "Working…" : confirmLabel}
           </Button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -468,8 +466,10 @@ export function StateSwitcher<T extends string>({
   floating?: boolean;
 }) {
   return (
-    <div
-      className={floating ? "anim-up" : undefined}
+    <Anim
+      still={!floating}
+      preset="up"
+      delay={0.25}
       style={{
         ...(floating
           ? ({ position: "fixed", right: 20, bottom: 20, zIndex: 50 } as CSSProperties)
@@ -497,10 +497,16 @@ export function StateSwitcher<T extends string>({
         {label}
       </span>
       {options.map((o) => (
-        <span key={o.value} style={switchTabStyle(value === o.value)} onClick={() => onChange(o.value)}>
+        <motion.span
+          key={o.value}
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.95 }}
+          style={switchTabStyle(value === o.value)}
+          onClick={() => onChange(o.value)}
+        >
           {o.label}
-        </span>
+        </motion.span>
       ))}
-    </div>
+    </Anim>
   );
 }

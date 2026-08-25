@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { askDocument, type Simulate } from "@/lib/api";
 import { CITATIONS, QA_SUGGESTIONS, qaSnippet } from "@/lib/mock/data";
@@ -18,6 +19,7 @@ import { StateSwitcher } from "@/components/documind/feedback";
 import { DocumentReader } from "@/components/documind/reader";
 import { ArrowLeftIcon, ChatIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { Anim } from "@/components/motion";
 
 const SIMULATIONS = [
   { value: "ok" as const, label: "Default" },
@@ -41,7 +43,16 @@ export function QaView({
   const [simulate, setSimulate] = useState<Simulate>("ok");
   const [draft, setDraft] = useState("");
   const [activeCite, setActiveCite] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+
+  // Global search links straight at a clause (`/qa/[id]?page=11`), so the
+  // reader has to be able to open somewhere other than page one. Only the
+  // initial page is taken from the URL — paging around afterwards is local
+  // state and shouldn't rewrite history.
+  const params = useSearchParams();
+  const [page, setPage] = useState(() => {
+    const wanted = Number(params.get("page"));
+    return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, totalPages) : 1;
+  });
 
   const citation = CITATIONS.find((c) => c.id === activeCite) ?? null;
 
@@ -94,8 +105,7 @@ export function QaView({
   return (
     <ChatPage>
       {/* Header --------------------------------------------------------- */}
-      <div
-        className="anim-up"
+      <Anim
         style={{ flex: "none", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}
       >
         <Link
@@ -166,7 +176,7 @@ export function QaView({
             </Button>
           )}
         </div>
-      </div>
+      </Anim>
 
       <div className="dm-reader-grid">
       <ChatPanel>

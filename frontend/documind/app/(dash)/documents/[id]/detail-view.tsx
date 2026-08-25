@@ -26,6 +26,7 @@ import {
   RefreshIcon,
 } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { Anim, Shimmer, Stagger } from "@/components/motion";
 
 const SIMULATIONS = [
   { value: "ok" as const, label: "Default" },
@@ -120,8 +121,7 @@ export function DocumentDetailView({ id }: { id: string }) {
       {detail && doc.status !== "error" && (
         <>
           {/* Identity card ------------------------------------------------ */}
-          <div
-            className="anim-up"
+          <Anim
             style={{
               flex: "none",
               background: "var(--surface)",
@@ -246,7 +246,7 @@ export function DocumentDetailView({ id }: { id: string }) {
                 </div>
               </div>
             )}
-          </div>
+          </Anim>
 
           {/* Non-complete states ------------------------------------------ */}
           {detail.status === "failed" && detail.error && (
@@ -315,8 +315,8 @@ export function DocumentDetailView({ id }: { id: string }) {
                     }}
                   >
                     <span style={eyebrow}>{label}</span>
-                    <span className="skeleton" style={{ width: "70%", height: 12 }} />
-                    <span className="skeleton" style={{ width: "45%", height: 12 }} />
+                    <Shimmer style={{ width: "70%", height: 12 }} />
+                    <Shimmer style={{ width: "45%", height: 12 }} />
                   </div>
                 ))}
               </div>
@@ -337,14 +337,17 @@ export function DocumentDetailView({ id }: { id: string }) {
 
               <RiskPanel detail={detail} />
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18, alignItems: "start" }}>
-                <div className="anim-up" style={{ ["--i" as string]: 5, minWidth: 0 }}>
+              <Stagger
+                inView
+                style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18, alignItems: "start" }}
+              >
+                <Anim style={{ minWidth: 0 }}>
                   <ExtractionPanel detail={detail} />
-                </div>
-                <div className="anim-up" style={{ ["--i" as string]: 6, minWidth: 0 }}>
+                </Anim>
+                <Anim style={{ minWidth: 0 }}>
                   <FindingsPanel detail={detail} />
-                </div>
-              </div>
+                </Anim>
+              </Stagger>
             </>
           )}
         </>
@@ -514,10 +517,8 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
   const highCount = detail.findings.filter((f) => f.severity === "High").length;
 
   return (
-    <div
-      className="anim-up"
+    <Anim
       style={{
-        ["--i" as string]: 1,
         flex: "none",
         background: v(tone, "-soft"),
         border: `1px solid ${v(tone, "-border")}`,
@@ -599,16 +600,14 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
                 : "Low-risk documents are auto-approved and need no reviewer action."}{" "}
             <span style={{ color: "var(--accent)", fontWeight: 500 }}>How this is scored →</span>
           </span>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(148px,1fr))", gap: 14 }}>
-            {detail.riskCategories.map((cat, i) => {
+          <Stagger delay={0.1} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(148px,1fr))", gap: 14 }}>
+            {detail.riskCategories.map((cat) => {
               const ct = riskTone(cat.score);
               const level = cat.score <= 33 ? "Low" : cat.score <= 66 ? "Medium" : "High";
               return (
-                <div
+                <Anim
                   key={cat.name}
-                  className="anim-up"
                   style={{
-                    ["--i" as string]: i + 2,
                     display: "flex",
                     flexDirection: "column",
                     gap: 7,
@@ -650,13 +649,13 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
                   >
                     {level}
                   </span>
-                </div>
+                </Anim>
               );
             })}
-          </div>
+          </Stagger>
         </div>
       </div>
-    </div>
+    </Anim>
   );
 }
 
@@ -887,18 +886,17 @@ function FindingsPanel({ detail }: { detail: DocumentDetail }) {
           </span>
         </div>
       ) : (
-        <div style={{ position: "relative", padding: "0 22px 20px" }}>
+        <Stagger inView style={{ position: "relative", padding: "0 22px 20px" }}>
           <div style={{ position: "absolute", left: 27, top: 4, bottom: 34, width: 1, background: "var(--border)" }} />
-          {detail.findings.map((f, i) => {
+          {detail.findings.map((f) => {
             const cv = SEVERITY_TONE[f.severity];
             const long = f.description.length > LIMIT;
             const open = expanded.includes(f.id);
             return (
-              <div
+              <Anim
+                preset="row"
                 key={f.id}
-                className="anim-row"
                 style={{
-                  ["--i" as string]: i,
                   position: "relative",
                   display: "flex",
                   gap: 14,
@@ -951,10 +949,10 @@ function FindingsPanel({ detail }: { detail: DocumentDetail }) {
                     )}
                   </div>
                 </div>
-              </div>
+              </Anim>
             );
           })}
-        </div>
+        </Stagger>
       )}
     </div>
   );
@@ -990,43 +988,43 @@ function DetailSkeleton({ slow }: { slow: boolean }) {
     <>
       <div style={{ ...panel, borderRadius: 18, gap: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 20, padding: "22px 24px 20px" }}>
-          <span className="skeleton" style={{ width: 46, height: 46, borderRadius: 14, flex: "none" }} />
+          <Shimmer style={{ width: 46, height: 46, borderRadius: 14, flex: "none" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-            <span className="skeleton" style={{ width: 160, height: 10 }} />
-            <span className="skeleton" style={{ width: "46%", height: 22 }} />
-            <span className="skeleton" style={{ width: "62%", height: 10 }} />
+            <Shimmer style={{ width: 160, height: 10 }} />
+            <Shimmer style={{ width: "46%", height: 22 }} />
+            <Shimmer style={{ width: "62%", height: 10 }} />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <span className="skeleton" style={{ width: 128, height: 38 }} />
-            <span className="skeleton" style={{ width: 108, height: 38 }} />
-            <span className="skeleton" style={{ width: 132, height: 38 }} />
+            <Shimmer style={{ width: 128, height: 38 }} />
+            <Shimmer style={{ width: 108, height: 38 }} />
+            <Shimmer style={{ width: 132, height: 38 }} />
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", borderTop: "1px solid var(--border)", background: "var(--surface-2)" }}>
           {[0, 1, 2, 3].map((i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", gap: 9, padding: "18px 24px", borderLeft: i ? "1px solid var(--border)" : undefined }}>
-              <span className="skeleton" style={{ width: 80, height: 8 }} />
-              <span className="skeleton" style={{ width: 120, height: 18 }} />
-              <span className="skeleton" style={{ width: "100%", height: 4 }} />
+              <Shimmer style={{ width: 80, height: 8 }} />
+              <Shimmer style={{ width: 120, height: 18 }} />
+              <Shimmer style={{ width: "100%", height: 4 }} />
             </div>
           ))}
         </div>
       </div>
 
       <div style={{ ...panel, borderRadius: 18, padding: "22px 24px", flexDirection: "row", alignItems: "center", gap: 28 }}>
-        <span className="skeleton" style={{ width: 104, height: 104, borderRadius: "50%", flex: "none" }} />
+        <Shimmer style={{ width: 104, height: 104, borderRadius: "50%", flex: "none" }} />
         <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-          <span className="skeleton" style={{ width: "70%", height: 12 }} />
-          <span className="skeleton" style={{ width: "100%", height: 62 }} />
+          <Shimmer style={{ width: "70%", height: 12 }} />
+          <Shimmer style={{ width: "100%", height: 62 }} />
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
         {[7, 5].map((rows, k) => (
           <div key={k} style={{ ...panel, borderRadius: 18, padding: 22, gap: 14 }}>
-            <span className="skeleton" style={{ width: 160, height: 14 }} />
+            <Shimmer style={{ width: 160, height: 14 }} />
             {Array.from({ length: rows }, (_, i) => (
-              <span key={i} className="skeleton" style={{ width: `${94 - i * 7}%`, height: 12 }} />
+              <Shimmer key={i} delay={i * 0.08} style={{ width: `${94 - i * 7}%`, height: 12 }} />
             ))}
           </div>
         ))}

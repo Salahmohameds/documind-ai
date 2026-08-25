@@ -34,6 +34,7 @@ import {
 import { CaretDownIcon, SearchIcon, UploadIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Anim, AnimatePresence, Shimmer } from "@/components/motion";
 
 const GRID = "34px minmax(0,1fr) 104px 132px 78px 54px 116px 36px";
 const TYPES: (DocType | "All")[] = ["All", "Invoice", "Contract", "Amendment", "Statement"];
@@ -141,7 +142,7 @@ function Menu({
         align={align}
         sideOffset={6}
         style={{ width }}
-        className="anim-down rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
+        className="rounded-xl p-1.5 shadow-[0_14px_34px_rgba(11,18,32,.16)]"
       >
         {children}
       </DropdownMenuContent>
@@ -340,8 +341,7 @@ export function DocumentsView() {
       }}
     >
       {/* Header --------------------------------------------------------- */}
-      <div
-        className="anim-up"
+      <Anim
         style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -375,13 +375,12 @@ export function DocumentsView() {
             </Link>
           </Button>
         </div>
-      </div>
+      </Anim>
 
       {/* Filter bar ----------------------------------------------------- */}
-      <div
-        className="card anim-up"
+      <Anim
+        className="card"
         style={{
-          ["--i" as string]: 1,
           flex: "none",
           padding: 12,
           display: "flex",
@@ -484,7 +483,7 @@ export function DocumentsView() {
             Clear filters
           </Button>
         )}
-      </div>
+      </Anim>
 
       {/* Error ---------------------------------------------------------- */}
       {docs.status === "error" && docs.error && (
@@ -520,16 +519,16 @@ export function DocumentsView() {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              <span className="skeleton" style={{ width: 14, height: 14, borderRadius: 4 }} />
+              <Shimmer delay={i * 0.08} style={{ width: 14, height: 14, borderRadius: 4 }} />
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="skeleton" style={{ width: 22, height: 22, flex: "none" }} />
-                <span className="skeleton" style={{ width: `${w}%`, height: 12 }} />
+                <Shimmer delay={i * 0.08} style={{ width: 22, height: 22, flex: "none" }} />
+                <Shimmer delay={i * 0.08} style={{ width: `${w}%`, height: 12 }} />
               </div>
-              <span className="skeleton" style={{ width: 66, height: 16 }} />
-              <span className="skeleton" style={{ width: 96, height: 16 }} />
-              <span className="skeleton" style={{ width: 44, height: 16 }} />
-              <span className="skeleton" style={{ justifySelf: "end", width: 26, height: 10 }} />
-              <span className="skeleton" style={{ justifySelf: "end", width: 84, height: 10 }} />
+              <Shimmer delay={i * 0.08} style={{ width: 66, height: 16 }} />
+              <Shimmer delay={i * 0.08} style={{ width: 96, height: 16 }} />
+              <Shimmer delay={i * 0.08} style={{ width: 44, height: 16 }} />
+              <Shimmer delay={i * 0.08} style={{ justifySelf: "end", width: 26, height: 10 }} />
+              <Shimmer delay={i * 0.08} style={{ justifySelf: "end", width: 84, height: 10 }} />
               <span />
             </div>
           ))}
@@ -599,10 +598,9 @@ export function DocumentsView() {
 
       {/* Table ---------------------------------------------------------- */}
       {docs.status !== "loading" && docs.status !== "error" && total > 0 && (
-        <div
-          className="card anim-up"
+        <Anim
+          className="card"
           style={{
-            ["--i" as string]: 2,
             flex: "none",
             minHeight: "fit-content",
             display: "flex",
@@ -613,8 +611,8 @@ export function DocumentsView() {
           }}
         >
           {sel.length > 0 && (
-            <div
-              className="anim-down"
+            <Anim
+              preset="down"
               style={{
                 minHeight: 40,
                 flex: "none",
@@ -670,7 +668,7 @@ export function DocumentsView() {
               >
                 Deselect all
               </button>
-            </div>
+            </Anim>
           )}
 
           <div className="dm-scroll-x" style={{ minWidth: 0 }}>
@@ -683,10 +681,10 @@ export function DocumentsView() {
             onToggleAll={() => setSel(allSelected ? [] : rows.map((r) => r.id))}
           />
 
-          {rows.map((d, i) => (
+          <AnimatePresence initial={false}>
+          {rows.map((d) => (
             <Row
               key={d.id}
-              index={i}
               doc={d}
               selected={sel.includes(d.id)}
               onToggle={() => setSel((s) => (s.includes(d.id) ? s.filter((x) => x !== d.id) : s.concat(d.id)))}
@@ -703,6 +701,7 @@ export function DocumentsView() {
               onExport={() => runExport([d.id])}
             />
           ))}
+          </AnimatePresence>
           </div>
           </div>
 
@@ -783,7 +782,7 @@ export function DocumentsView() {
               </span>
             </div>
           </div>
-        </div>
+        </Anim>
       )}
 
       <ConfirmDialog
@@ -910,7 +909,6 @@ function HeaderRow({
 
 function Row({
   doc,
-  index,
   selected,
   onToggle,
   onReprocess,
@@ -918,7 +916,6 @@ function Row({
   onExport,
 }: {
   doc: DocumentSummary;
-  index: number;
   selected: boolean;
   onToggle: () => void;
   onReprocess: () => void;
@@ -930,11 +927,12 @@ function Row({
   const processing = doc.status === "processing";
 
   return (
-    <div
-      className="anim-row"
+    // `layout` is what makes the rows below a deleted one slide up to close
+    // the gap, rather than jumping.
+    <Anim
+      preset="row"
+      layout
       style={{
-        ["--i" as string]: index,
-        ["--stagger" as string]: "22ms",
         position: "relative",
         borderBottom: "1px solid var(--border)",
         background: selected ? "var(--accent-soft)" : doc.status === "failed" ? "var(--bad-soft)" : "transparent",
@@ -1147,6 +1145,6 @@ function Row({
           )}
         </div>
       )}
-    </div>
+    </Anim>
   );
 }

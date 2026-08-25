@@ -1,10 +1,14 @@
 import { Sidebar } from "@/components/shell/sidebar";
 import { SidebarProvider } from "@/components/shell/sidebar-state";
 import { Topbar } from "@/components/shell/topbar";
+import { SearchProvider } from "@/components/search/search-provider";
 
 export default function DashLayout({ children }: LayoutProps<"/">) {
   return (
     <SidebarProvider>
+      {/* Global search is mounted here rather than in the root layout, so the
+          auth pages never load the palette or bind its shortcut. */}
+      <SearchProvider>
       <div
         style={{
           width: "100%",
@@ -21,6 +25,7 @@ export default function DashLayout({ children }: LayoutProps<"/">) {
           {children}
         </div>
       </div>
+      </SearchProvider>
     </SidebarProvider>
   );
 }

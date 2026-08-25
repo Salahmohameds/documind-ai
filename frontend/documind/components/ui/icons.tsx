@@ -243,3 +243,28 @@ export const KebabIcon = ({ size = 18, color = "currentColor", style }: IconProp
     <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" />
   </svg>
 );
+
+/* -- Search palette ------------------------------------------------------ */
+
+/** A clause or heading inside a document. */
+export const HashIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M10 3 8 21M16 3l-2 18M3.5 8.5h17M3 15.5h17" />
+  </Svg>
+);
+
+/** An extracted key/value pair. */
+export const TagIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9-9-9Z" />
+    <circle cx="7.5" cy="7.5" r="1.4" />
+  </Svg>
+);
+
+/** The return key, for the keyboard footer. */
+export const ReturnIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 10 5 14l4 4" />
+    <path d="M5 14h10a4 4 0 0 0 4-4V6" />
+  </Svg>
+);
