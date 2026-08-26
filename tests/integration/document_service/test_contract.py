@@ -9,8 +9,6 @@ import io
 
 import pytest
 
-from conftest import pdf_upload
-
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
 
@@ -42,7 +40,7 @@ def test_health_endpoints_need_no_auth(client):
 
 # ───────────────────────────── upload ─────────────────────────────
 
-def test_upload_accepts_pdf_and_returns_202(client, sample_pdf):
+def test_upload_accepts_pdf_and_returns_202(client, sample_pdf, pdf_upload):
     r = client.post("/documents", files=pdf_upload(sample_pdf, "contract_0000.pdf"))
     assert r.status_code == 202, r.text
     body = r.json()
@@ -51,7 +49,7 @@ def test_upload_accepts_pdf_and_returns_202(client, sample_pdf):
     assert body["name"] == "contract_0000.pdf"
 
 
-def test_upload_starts_in_a_non_terminal_state(client, sample_pdf):
+def test_upload_starts_in_a_non_terminal_state(client, sample_pdf, pdf_upload):
     """202 means accepted for processing, not processed."""
     r = client.post("/documents", files=pdf_upload(sample_pdf))
     assert r.json()["status"] not in ("completed", "failed")
@@ -68,7 +66,7 @@ def test_upload_rejects_non_pdf_extension(client):
     assert body["retryable"] is False
 
 
-def test_upload_rejects_pdf_extension_without_magic_bytes(client):
+def test_upload_rejects_pdf_extension_without_magic_bytes(client, pdf_upload):
     """Extension alone is not proof — content must look like a PDF."""
     r = client.post(
         "/documents",
@@ -77,7 +75,7 @@ def test_upload_rejects_pdf_extension_without_magic_bytes(client):
     assert r.status_code in (400, 415), r.text
 
 
-def test_upload_rejects_empty_file(client):
+def test_upload_rejects_empty_file(client, pdf_upload):
     r = client.post("/documents", files=pdf_upload(b"", "empty.pdf"))
     assert r.status_code in (400, 415, 422), r.text
 
@@ -87,7 +85,7 @@ def test_upload_rejects_missing_file_part(client):
     assert r.status_code == 422
 
 
-def test_upload_rejects_path_traversal_filename(client):
+def test_upload_rejects_path_traversal_filename(client, pdf_upload):
     """A filename is attacker-controlled input, not a path."""
     r = client.post(
         "/documents",
@@ -100,7 +98,7 @@ def test_upload_rejects_path_traversal_filename(client):
         assert r.status_code in (400, 415, 422)
 
 
-def test_repeated_uploads_get_distinct_ids(client, sample_pdf):
+def test_repeated_uploads_get_distinct_ids(client, sample_pdf, pdf_upload):
     """Uploading the same bytes twice is two documents, not one."""
     first = client.post("/documents", files=pdf_upload(sample_pdf)).json()["id"]
     second = client.post("/documents", files=pdf_upload(sample_pdf)).json()["id"]
