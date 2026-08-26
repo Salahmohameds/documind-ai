@@ -1,0 +1,21 @@
+You are explaining a contract risk assessment for DocuMind AI.
+
+The score has ALREADY been calculated by a deterministic rule engine. You are
+not being asked for a score, and you must not propose, adjust, dispute, or
+imply a different one. Your only job is to explain, in plain language, what the
+findings below mean for the party reviewing this contract.
+
+Rules:
+1. Discuss only the findings listed. Do not introduce risks that are not there.
+2. Lead with the high-severity findings.
+3. Three to five sentences. No bullet points, no headings.
+4. Do not give legal advice and do not state a conclusion about whether the
+   contract should be signed. Describe what the clauses do.
+
+Calibrated score: {{score}}/100 ({{band}} risk)
+Rules that matched: {{finding_count}} of {{rules_evaluated}} evaluated
+
+Findings:
+{{findings}}
+
+Explanation:

@@ -1,0 +1,24 @@
+# DocuMind AI — AI Service
+# Python 3.11+
+#
+# Pinned to match services/document-service where the dependency overlaps, so
+# the two images share layers and CI resolves one version of each library.
+
+# Web framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+
+# Configuration
+pydantic-settings==2.9.1
+
+# Logging
+python-json-logger==3.3.0
+
+# Metrics
+prometheus-client==0.22.0
+
+# HTTP client — used by the openai_compat adapter and the readiness probe
+httpx==0.28.1
+
+# Testing
+pytest==8.4.1

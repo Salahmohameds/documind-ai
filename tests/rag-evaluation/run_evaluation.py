@@ -64,6 +64,35 @@ def evaluate(dataset, top_k):
     }
 
 
+def guard_against_mock_embeddings(allow_mock):
+    """Refuse to produce a retrieval metric from meaningless vectors.
+
+    EMBEDDING_BACKEND=mock in search-service is a SHA-256 hash chain: perfectly
+    deterministic, and semantically empty. Cosine similarity between two related
+    sentences is noise, so a hit rate measured against it describes nothing.
+
+    This is enforced in code rather than documented in a README because the
+    failure mode is somebody pasting a hit rate into the report at 2 a.m. under
+    deadline, and a README does not stop that.
+    """
+    backend = os.getenv("EMBEDDING_BACKEND", "mock")
+    if backend != "mock" or allow_mock:
+        return backend
+
+    print("=" * 74, file=sys.stderr)
+    print("REFUSING TO REPORT: EMBEDDING_BACKEND=mock.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Mock embeddings are a hash chain with no semantic content, so any", file=sys.stderr)
+    print("hit rate or MRR computed from them is meaningless. Do not put these", file=sys.stderr)
+    print("numbers in docs/performance/ or the final report.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Set EMBEDDING_BACKEND=local_st (or point search-service at", file=sys.stderr)
+    print("ai-service /embed), or pass --allow-mock for a plumbing smoke test", file=sys.stderr)
+    print("whose output is written nowhere.", file=sys.stderr)
+    print("=" * 74, file=sys.stderr)
+    raise SystemExit(3)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--top-k", type=int, default=5)
@@ -71,7 +100,14 @@ def main():
         "--dataset",
         default=os.path.join(os.path.dirname(__file__), "rag_evaluation_dataset.json"),
     )
+    parser.add_argument(
+        "--allow-mock",
+        action="store_true",
+        help="Run with mock embeddings for a plumbing smoke test. NOT reportable.",
+    )
     args = parser.parse_args()
+
+    backend = guard_against_mock_embeddings(args.allow_mock)
 
     dataset = load_dataset(args.dataset)
     report = evaluate(dataset, args.top_k)
@@ -90,6 +126,11 @@ def main():
             f"{row['reciprocal_rank']:<8}{row['question'][:60]}"
         )
 
+    if backend == "mock":
+        print("\nNOT A RESULT: mock embeddings. Nothing was written to disk.")
+        return
+
+    report["embedding_backend"] = backend
     out_path = os.path.join(os.path.dirname(__file__), "evaluation_results.json")
     with open(out_path, "w") as f:
         json.dump(report, f, indent=2)

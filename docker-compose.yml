@@ -31,6 +31,39 @@ services:
       timeout: 3s
       retries: 10
 
+  ai-service:
+    build:
+      context: ./services/ai-service
+    container_name: documind-ai-service
+    # Provider configuration comes from services/ai-service/.env, which is
+    # gitignored and holds the API key. The same file is read by `uvicorn` when
+    # running the service directly, so local and compose behave identically.
+    #
+    # With no .env present the service falls back to its own defaults, which are
+    # AI_BACKEND=mock - it starts and serves every endpoint offline with no
+    # credential. See services/ai-service/.env.example for the shape.
+    env_file:
+      - path: ./services/ai-service/.env
+        required: false
+    environment:
+      # Fixed by the container layout. Deliberately NOT duplicating anything
+      # .env sets: compose's `environment` overrides `env_file`, so a default
+      # here would make the .env value unreachable.
+      PORT: 8080
+      SERVICE_NAME: ai-service
+      LOG_LEVEL: INFO
+      PROMPTS_DIR: app/prompts
+    ports:
+      - "8081:8080"
+    healthcheck:
+      # Uses the readiness probe, so compose agrees with Kubernetes about what
+      # "up" means for this service.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/readiness', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   search-service:
     build:
       context: ./services/search-service

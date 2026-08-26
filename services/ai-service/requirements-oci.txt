@@ -1,0 +1,6 @@
+# Optional extra — ONLY needed when AI_BACKEND=oci.
+#
+# Deliberately kept out of requirements.txt so the default image stays small
+# and the service can build, run and test with no OCI dependency at all.
+# The Dockerfile installs this layer only when INSTALL_OCI=true.
+oci==2.149.1
