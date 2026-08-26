@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { askDocument, type Simulate } from "@/lib/api";
+import { askDocument } from "@/lib/api";
 import { CITATIONS, QA_SUGGESTIONS, qaSnippet } from "@/lib/mock/data";
 import {
   ChatComposer,
@@ -15,17 +15,10 @@ import {
   useChatEngine,
   type Cite,
 } from "@/components/documind/chat";
-import { StateSwitcher } from "@/components/documind/feedback";
 import { DocumentReader } from "@/components/documind/reader";
 import { ArrowLeftIcon, ChatIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Anim } from "@/components/motion";
-
-const SIMULATIONS = [
-  { value: "ok" as const, label: "Default" },
-  { value: "slow" as const, label: "Slow" },
-  { value: "error" as const, label: "Error" },
-];
 
 /**
  * Per-document Q&A. Identical surface to the workspace-wide Ask page — it only
@@ -40,7 +33,6 @@ export function QaView({
   docName: string;
   totalPages: number;
 }) {
-  const [simulate, setSimulate] = useState<Simulate>("ok");
   const [draft, setDraft] = useState("");
   const [activeCite, setActiveCite] = useState<string | null>(null);
 
@@ -72,7 +64,7 @@ export function QaView({
     noAnswer: () =>
       "I could not find anything in this document that answers that. Answers here are grounded in this document alone — try the workspace-wide Ask page to search every document at once.",
     ask: async (question) => {
-      const answer = await askDocument(question, { simulate });
+      const answer = await askDocument(question);
       if (!answer) return null;
       return {
         text: answer.text,
@@ -229,8 +221,6 @@ export function QaView({
         citation={citation}
       />
       </div>
-
-      <StateSwitcher value={simulate} options={SIMULATIONS} onChange={setSimulate} />
     </ChatPage>
   );
 }

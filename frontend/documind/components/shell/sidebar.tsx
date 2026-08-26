@@ -3,11 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
-import { DOCUMENTS } from "@/lib/mock/data";
+import { useDocumentCounts } from "@/lib/use-health";
 import { setOverlayOpen, useSidebar } from "@/components/shell/sidebar-state";
 import { Logo, Wordmark } from "@/components/shell/logo";
 import { Badge } from "@/components/ui/badge";
-import { ChatIcon, FileIcon, GridIcon, UploadIcon } from "@/components/ui/icons";
+import {
+  ChatIcon,
+  FileIcon,
+  GridIcon,
+  UploadIcon,
+} from "@/components/ui/icons";
 import { AnimatePresence, Anim, Stagger, motion } from "@/components/motion";
 import { EASED, PRESETS, SPRING } from "@/lib/motion";
 
@@ -21,27 +26,31 @@ type NavItem = {
   alsoMatches?: string[];
 };
 
-/** Badges read the mock store directly — swap for a counts endpoint later. */
-const inFlight = DOCUMENTS.filter((d) => d.status === "processing" || d.status === "queued").length;
-
-const NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: GridIcon },
-  { href: "/chat", label: "Ask", icon: ChatIcon },
-  {
-    href: "/upload",
-    label: "Upload",
-    icon: UploadIcon,
-    badge: inFlight > 0 ? inFlight : undefined,
-    badgeAccent: true,
-  },
-  {
-    href: "/documents",
-    label: "Documents",
-    icon: FileIcon,
-    badge: DOCUMENTS.length,
-    alsoMatches: ["/qa"],
-  },
-];
+/**
+ * The nav is a function of the live library counts, so a badge can never
+ * disagree with the page it links to.
+ */
+function navItems(counts: { total: number; inFlight: number }): NavItem[] {
+  const inFlight = counts.inFlight;
+  return [
+    { href: "/dashboard", label: "Dashboard", icon: GridIcon },
+    { href: "/chat", label: "Ask", icon: ChatIcon },
+    {
+      href: "/upload",
+      label: "Upload",
+      icon: UploadIcon,
+      badge: inFlight > 0 ? inFlight : undefined,
+      badgeAccent: true,
+    },
+    {
+      href: "/documents",
+      label: "Documents",
+      icon: FileIcon,
+      badge: counts.total,
+      alsoMatches: ["/qa"],
+    },
+  ];
+}
 
 const EXPANDED = 236;
 const COLLAPSED = 68;
@@ -49,6 +58,7 @@ const COLLAPSED = 68;
 export function Sidebar() {
   const pathname = usePathname();
   const { collapsed, narrow, overlay } = useSidebar();
+  const nav = navItems(useDocumentCounts());
 
   // Navigating away closes a floating rail — otherwise it covers the new page.
   useEffect(() => {
@@ -60,7 +70,9 @@ export function Sidebar() {
   return (
     <>
       {/* Narrow screens: the rail floats, so a spacer holds its slot in flow. */}
-      {narrow && <div className="flex-none" style={{ width: COLLAPSED }} aria-hidden />}
+      {narrow && (
+        <div className="flex-none" style={{ width: COLLAPSED }} aria-hidden />
+      )}
 
       <AnimatePresence>
         {overlay && (
@@ -85,13 +97,18 @@ export function Sidebar() {
         transition={SPRING.layout}
         className={
           "flex flex-none flex-col border-r border-border bg-[var(--surface)] py-4 " +
-          (narrow ? "fixed inset-y-0 left-0 z-40 shadow-[0_0_40px_rgb(11_18_32/24%)]" : "relative")
+          (narrow
+            ? "fixed inset-y-0 left-0 z-40 shadow-[0_0_40px_rgb(11_18_32/24%)]"
+            : "relative")
         }
       >
         {/* Brand ----------------------------------------------------------- */}
         <div
           className="flex items-center gap-2.5 pt-1 pb-5"
-          style={{ paddingInline: collapsed ? 0 : 8, justifyContent: collapsed ? "center" : undefined }}
+          style={{
+            paddingInline: collapsed ? 0 : 8,
+            justifyContent: collapsed ? "center" : undefined,
+          }}
         >
           <Logo size={30} />
           <AnimatePresence initial={false}>
@@ -115,91 +132,102 @@ export function Sidebar() {
           gap={0.05}
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden"
         >
-          {NAV.map(({ href, label, icon: Icon, badge, badgeAccent, alsoMatches }) => {
-            const active =
-              pathname.startsWith(href) || (alsoMatches ?? []).some((p) => pathname.startsWith(p));
-            return (
-              <Anim
-                key={href}
-                as={Link}
-                preset="left"
-                href={href}
-                aria-current={active ? "page" : undefined}
-                title={collapsed ? label : undefined}
-                whileHover={{ x: 2 }}
-                whileTap={{ scale: 0.97 }}
-                style={{ justifyContent: collapsed ? "center" : undefined }}
-                className={
-                  "relative flex items-center gap-2.5 rounded-[10px] border border-transparent px-2.5 py-[9px] transition-colors duration-150 " +
-                  (active ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-2)]")
-                }
-              >
-                {/* One indicator shared across items: `layoutId` makes Motion
+          {nav.map(
+            ({ href, label, icon: Icon, badge, badgeAccent, alsoMatches }) => {
+              const active =
+                pathname.startsWith(href) ||
+                (alsoMatches ?? []).some((p) => pathname.startsWith(p));
+              return (
+                <Anim
+                  key={href}
+                  as={Link}
+                  preset="left"
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  title={collapsed ? label : undefined}
+                  whileHover={{ x: 2 }}
+                  whileTap={{ scale: 0.97 }}
+                  style={{ justifyContent: collapsed ? "center" : undefined }}
+                  className={
+                    "relative flex items-center gap-2.5 rounded-[10px] border border-transparent px-2.5 py-[9px] transition-colors duration-150 " +
+                    (active
+                      ? "bg-[var(--accent-soft)]"
+                      : "hover:bg-[var(--surface-2)]")
+                  }
+                >
+                  {/* One indicator shared across items: `layoutId` makes Motion
                     slide it from the old item to the new one on navigation,
                     instead of one fading out while another fades in. */}
-                {active && (
-                  <motion.span
-                    layoutId="nav-indicator"
-                    aria-hidden
-                    transition={SPRING.layout}
-                    className="absolute left-0 h-[18px] w-[3px] rounded-full bg-primary"
-                    style={{ top: "calc(50% - 9px)" }}
-                  />
-                )}
-                <Icon size={16} color={active ? "var(--accent)" : "var(--s400)"} />
-
-                <AnimatePresence initial={false}>
-                  {!collapsed && (
+                  {active && (
                     <motion.span
-                      key="label"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={EASED.instant}
-                      className={
-                        "truncate text-[13px] " +
-                        (active ? "font-semibold text-primary" : "font-[450] text-[var(--text-2)]")
-                      }
-                    >
-                      {label}
-                    </motion.span>
+                      layoutId="nav-indicator"
+                      aria-hidden
+                      transition={SPRING.layout}
+                      className="absolute left-0 h-[18px] w-[3px] rounded-full bg-primary"
+                      style={{ top: "calc(50% - 9px)" }}
+                    />
                   )}
-                </AnimatePresence>
+                  <Icon
+                    size={16}
+                    color={active ? "var(--accent)" : "var(--s400)"}
+                  />
 
-                {!collapsed &&
-                  badge !== undefined &&
-                  (badgeAccent ? (
-                    <Anim
-                      as={Badge}
-                      preset="pop"
-                      variant="pill"
-                      className="ml-auto bg-[var(--accent-soft)] px-[7px] py-0.5 font-semibold text-primary"
-                    >
-                      {badge}
-                    </Anim>
-                  ) : (
+                  <AnimatePresence initial={false}>
+                    {!collapsed && (
+                      <motion.span
+                        key="label"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={EASED.instant}
+                        className={
+                          "truncate text-[13px] " +
+                          (active
+                            ? "font-semibold text-primary"
+                            : "font-[450] text-[var(--text-2)]")
+                        }
+                      >
+                        {label}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+
+                  {!collapsed &&
+                    badge !== undefined &&
+                    (badgeAccent ? (
+                      <Anim
+                        as={Badge}
+                        preset="pop"
+                        variant="pill"
+                        className="ml-auto bg-[var(--accent-soft)] px-[7px] py-0.5 font-semibold text-primary"
+                      >
+                        {badge}
+                      </Anim>
+                    ) : (
+                      <Anim
+                        as="span"
+                        preset="fade"
+                        className={
+                          "ml-auto text-[11px] " +
+                          (active ? "text-primary" : "text-[var(--text-3)]")
+                        }
+                      >
+                        {badge}
+                      </Anim>
+                    ))}
+
+                  {/* Collapsed: the count becomes a dot so it still reads as unread. */}
+                  {collapsed && badge !== undefined && badgeAccent && (
                     <Anim
                       as="span"
-                      preset="fade"
-                      className={
-                        "ml-auto text-[11px] " + (active ? "text-primary" : "text-[var(--text-3)]")
-                      }
-                    >
-                      {badge}
-                    </Anim>
-                  ))}
-
-                {/* Collapsed: the count becomes a dot so it still reads as unread. */}
-                {collapsed && badge !== undefined && badgeAccent && (
-                  <Anim
-                    as="span"
-                    preset="pop"
-                    className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-primary"
-                  />
-                )}
-              </Anim>
-            );
-          })}
+                      preset="pop"
+                      className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-primary"
+                    />
+                  )}
+                </Anim>
+              );
+            },
+          )}
         </Stagger>
       </motion.div>
     </>

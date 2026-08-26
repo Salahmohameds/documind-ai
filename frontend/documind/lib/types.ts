@@ -2,7 +2,12 @@ import type { DocStatus, Tone } from "./design";
 
 export type { DocStatus, Tone };
 
-export type DocType = "Invoice" | "Contract" | "Amendment" | "Statement";
+/**
+ * "Unknown" is what document-service stores until a classifier has run. It is
+ * part of the union rather than coerced to a guess, so the UI can say "not
+ * classified yet" instead of labelling every upload a Contract.
+ */
+export type DocType = "Invoice" | "Contract" | "Amendment" | "Statement" | "Unknown";
 
 export type DocumentSummary = {
   id: string;
@@ -61,16 +66,22 @@ export type Finding = {
   page: number;
 };
 
+/**
+ * Everything past the summary is written by the analysis pipeline, so all of
+ * it is optional: a document that has only just been uploaded genuinely has no
+ * classification, no extracted fields and no risk breakdown, and the type says
+ * so rather than forcing the UI to invent placeholders.
+ */
 export type DocumentDetail = DocumentSummary & {
-  classification: {
+  classification?: {
     label: string;
     subtype: string;
     confidence: number;
     runnerUp: string;
     runnerUpConfidence: number;
-  };
-  processedIn: string;
-  model: string;
+  } | null;
+  processedIn?: string | null;
+  model?: string | null;
   fields: ExtractedField[];
   fieldsExpected: number;
   pii: PiiFinding[];
@@ -87,9 +98,10 @@ export type Kpi = {
   label: string;
   value: string;
   unit?: string;
-  delta: string;
-  direction: "up" | "down";
-  deltaTone: Tone;
+  /** Absent for live gauges, where a period-over-period comparison is meaningless. */
+  delta?: string;
+  direction?: "up" | "down";
+  deltaTone?: Tone;
   icon: "bars" | "warning" | "shield" | "clock";
   iconTone: Tone;
   footnote: string;
@@ -100,7 +112,14 @@ export type Dashboard = {
   flagged: DocumentSummary[];
   exceptions: [string, number][];
   gauge: { pct: number; target: string; legend: { label: string; value: number; tone: Tone }[] };
-  seriesSeed: number;
+  /**
+   * Real daily ingestion counts per document type, oldest day first, one entry
+   * per day in the selected range. A type with no uploads is omitted entirely
+   * rather than plotted as a flat line at zero.
+   */
+  series: { name: string; counts: number[] }[];
+  /** Documents uploaded inside the selected window — drives the empty state. */
+  volume: number;
   generatedAt: string;
   /** Set when one panel of the dashboard could not be computed. */
   degraded?: { panel: string; message: string };
@@ -121,6 +140,8 @@ export type UploadStage =
 
 export type UploadJob = {
   id: string;
+  /** The file itself, kept so the job can actually be sent and re-sent. */
+  file: File;
   name: string;
   ext: string;
   sizeMb: number;

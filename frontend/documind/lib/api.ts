@@ -1,21 +1,19 @@
 import {
   DEMO_CREDENTIALS,
-  DOCUMENTS,
-  EMPTY_DASHBOARD,
   QA_PAGES,
   QA_FALLBACK,
   UPLOAD_LIMITS,
   answerFor,
-  buildDashboard,
-  chatAnswerFor,
-  buildDetail,
-  degradedDashboard,
-  hash,
-  mockError,
 } from "@/lib/mock/data";
 import { corpus, invalidateCorpus, suggestions } from "@/lib/search/corpus";
 import { scoreEntry, snippetAround, tokenize, type Indexed } from "@/lib/search/rank";
-import { KIND_LABEL, KIND_ORDER, type SearchGroup, type SearchKind, type SearchResponse } from "@/lib/search/types";
+import {
+  KIND_LABEL,
+  KIND_ORDER,
+  type SearchGroup,
+  type SearchKind,
+  type SearchResponse,
+} from "@/lib/search/types";
 import type {
   ChatScope,
   Dashboard,
@@ -32,10 +30,15 @@ import type {
  * The single seam between the UI and its data.
  *
  * Every function here is async and returns exactly the shape the screens
- * render, so replacing a body with `fetch("/api/…")` is a local change — no
- * component has to move. The `simulate` option exists only so the mock can be
- * driven into its failure/empty states from the UI; drop it when the real
- * services land.
+ * render. The bodies now call this app's own `/api/…` route handlers, which
+ * are the only code that knows where `document-service` and `search-service`
+ * live — see `app/api/` and `lib/server/backend.ts`.
+ *
+ * Two things are still local, and are marked `UNBACKED` where they appear:
+ * authentication (no `api-gateway` yet) and the per-document reader fixtures
+ * (no `processing-service` to produce page text). Nothing else invents data —
+ * where a service has no answer, these functions return an empty or null
+ * result and the UI renders its "nothing here" state.
  */
 
 export type Simulate = "ok" | "empty" | "error" | "slow" | "partial";
@@ -52,8 +55,6 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_LATENCY = 620;
-
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -64,16 +65,75 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function latency(simulate: Simulate, signal?: AbortSignal) {
-  await sleep(simulate === "slow" ? 3400 : BASE_LATENCY + Math.random() * 380, signal);
+/* -- Transport ----------------------------------------------------------- */
+
+/**
+ * One fetch wrapper, so every screen fails the same way.
+ *
+ * The route handlers all answer errors with `{error, detail, code, retryable}`
+ * (see `lib/server/backend.ts`), which maps exactly onto `ApiError` — that is
+ * why no caller has to interpret a status code.
+ */
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // These paths are relative, which has no meaning without a document base, so
+  // a call from the server could only ever fail. During prerendering that is
+  // exactly the moment the screen should still be showing its skeleton, so the
+  // call parks instead of rejecting: the static shell captures the loading
+  // state, and the real request runs after hydration.
+  if (typeof window === "undefined") return new Promise<T>(() => {});
+
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers: { Accept: "application/json", ...init.headers } });
+  } catch (cause) {
+    // An aborted request is the caller's own doing — let `useAsync` drop it
+    // rather than rendering an error the user did not cause.
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    throw new ApiError(
+      "Cannot reach DocuMind",
+      "The browser could not reach this app's API. Check your connection and retry.",
+      "ERR_NETWORK",
+    );
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      detail?: string;
+      code?: string;
+      retryable?: boolean;
+    } | null;
+
+    throw new ApiError(
+      body?.error ?? "Something went wrong",
+      body?.detail ?? `The request failed with ${response.status}.`,
+      body?.code ?? "ERR_UNKNOWN",
+      body?.retryable ?? response.status >= 500,
+    );
+  }
+
+  return (await response.json()) as T;
 }
 
-function fail(simulate: Simulate, message: [string, string, string?]): void {
+/**
+ * The simulation switch, kept for the state-gallery controls on each screen.
+ *
+ * It short-circuits *before* the network: these are UI states being previewed,
+ * never claims about what a service returned. `"ok"` always goes to the real
+ * API.
+ */
+function simulatedFailure(simulate: Simulate, message: [string, string, string]): void {
   if (simulate !== "error") return;
   throw new ApiError(message[0], message[1], message[2]);
 }
 
+async function simulatedDelay(simulate: Simulate, signal?: AbortSignal): Promise<void> {
+  if (simulate === "slow") await sleep(3400, signal);
+}
+
 /* -- Auth --------------------------------------------------------------- */
+/* UNBACKED: api-gateway owns `POST /auth/login` and has not been built. This
+ * block is the only remaining fabricated data path in the app. */
 
 export type Session = { email: string; name: string; initials: string };
 
@@ -93,7 +153,8 @@ export async function signIn(email: string, password: string): Promise<SignInRes
       ok: false,
       lockedOut: true,
       title: "Account temporarily locked",
-      detail: "Too many failed attempts. The lock clears automatically in 20 seconds, or reset your password.",
+      detail:
+        "Too many failed attempts. The lock clears automatically in 20 seconds, or reset your password.",
     };
   }
 
@@ -111,7 +172,8 @@ export async function signIn(email: string, password: string): Promise<SignInRes
       ok: false,
       lockedOut: true,
       title: "Account temporarily locked",
-      detail: "Too many failed attempts. The lock clears automatically in 20 seconds, or reset your password.",
+      detail:
+        "Too many failed attempts. The lock clears automatically in 20 seconds, or reset your password.",
     };
   }
   return {
@@ -123,6 +185,7 @@ export async function signIn(email: string, password: string): Promise<SignInRes
 }
 
 /* -- Registration ------------------------------------------------------- */
+/* UNBACKED: same gateway gap as sign-in. */
 
 export type SignUpInput = {
   name: string;
@@ -135,10 +198,10 @@ export type SignUpResult =
   | { ok: true; email: string; verificationSentTo: string }
   | { ok: false; field: "email" | "password" | "org" | null; title: string; detail: string };
 
-/** Addresses the mock treats as already registered, to exercise the conflict. */
+/** Addresses treated as already registered, to exercise the conflict path. */
 const TAKEN_EMAILS = [DEMO_CREDENTIALS.email, "admin@meridian.com", "rowan@meridian.com"];
 
-/** Passwords the mock rejects server-side even though they pass the client rules. */
+/** Passwords rejected server-side even though they pass the client rules. */
 const BREACHED_PASSWORDS = ["password123", "documind123", "letmein123", "qwerty12345"];
 
 export async function signUp(input: SignUpInput): Promise<SignUpResult> {
@@ -149,7 +212,8 @@ export async function signUp(input: SignUpInput): Promise<SignUpResult> {
       ok: false,
       field: "email",
       title: "That email already has an account",
-      detail: "Sign in instead, or use a different address. Password resets go to the original inbox.",
+      detail:
+        "Sign in instead, or use a different address. Password resets go to the original inbox.",
     };
   }
 
@@ -158,7 +222,8 @@ export async function signUp(input: SignUpInput): Promise<SignUpResult> {
       ok: false,
       field: "password",
       title: "This password has appeared in a breach",
-      detail: "It passes the length rules but is on a known-compromised list. Choose something unique to DocuMind.",
+      detail:
+        "It passes the length rules but is on a known-compromised list. Choose something unique to DocuMind.",
     };
   }
 
@@ -179,6 +244,26 @@ export async function resendVerification(email: string): Promise<{ ok: boolean }
   return { ok: !email.endsWith("@example.com") };
 }
 
+/* -- Service health ------------------------------------------------------ */
+
+export type ServiceHealth = {
+  service: string;
+  state: "ready" | "degraded" | "unreachable";
+  detail: string;
+  checks?: Record<string, string>;
+};
+
+export type HealthReport = {
+  status: "ready" | "degraded";
+  services: ServiceHealth[];
+  checkedAt: string;
+};
+
+/** Live readiness of document-service and search-service. */
+export function getHealth(signal?: AbortSignal): Promise<HealthReport> {
+  return request<HealthReport>("/api/health", { signal });
+}
+
 /* -- Dashboard ---------------------------------------------------------- */
 
 export async function getDashboard(
@@ -186,21 +271,42 @@ export async function getDashboard(
   opts: { simulate?: Simulate; signal?: AbortSignal } = {},
 ): Promise<Dashboard> {
   const simulate = opts.simulate ?? "ok";
-  await latency(simulate, opts.signal);
-  fail(simulate, [
-    "Analytics service unavailable",
-    "The metrics warehouse did not respond within 10s. Document processing is unaffected — only this dashboard is stale.",
-    "ERR_ANALYTICS_TIMEOUT",
+  await simulatedDelay(simulate, opts.signal);
+  simulatedFailure(simulate, [
+    "Dashboard unavailable",
+    "The document library did not respond, so no metric could be computed. Processing is unaffected.",
+    "ERR_ANALYTICS_UNAVAILABLE",
   ]);
-  if (simulate === "empty") return EMPTY_DASHBOARD;
-  if (simulate === "partial") return degradedDashboard(range);
-  return buildDashboard(range);
-}
 
-export async function exportReport(range: DateRange): Promise<{ filename: string; rows: number }> {
-  await sleep(1800);
-  const d = buildDashboard(range);
-  return { filename: `documind-report-${range}.csv`, rows: Number(d.kpis[0].value.replace(/,/g, "")) };
+  const dashboard = await request<Dashboard>(`/api/dashboard?range=${range}`, {
+    signal: opts.signal,
+  });
+
+  // `empty` and `partial` preview real response shapes rather than substituting
+  // different data, so what the gallery shows is what the API can actually send.
+  if (simulate === "empty") {
+    return {
+      ...dashboard,
+      kpis: dashboard.kpis.map((k) => ({ ...k, value: "0", unit: undefined, delta: undefined, footnote: "no documents in this period" })),
+      flagged: [],
+      exceptions: [],
+      gauge: { pct: 0, target: "No documents scored yet", legend: dashboard.gauge.legend.map((l) => ({ ...l, value: 0 })) },
+      series: [],
+      volume: 0,
+    };
+  }
+  if (simulate === "partial") {
+    return {
+      ...dashboard,
+      exceptions: [],
+      degraded: {
+        panel: "Top exception types",
+        message: "The exception breakdown could not be computed. Every other panel is current.",
+      },
+    };
+  }
+
+  return dashboard;
 }
 
 /* -- Documents ---------------------------------------------------------- */
@@ -226,57 +332,40 @@ export type DocumentPage = {
   pageCount: number;
 };
 
-/** Mutable copy so local actions (delete, reprocess) survive re-queries. */
-let documents: DocumentSummary[] = DOCUMENTS.map((d) => ({ ...d }));
+const EMPTY_PAGE: DocumentPage = {
+  rows: [],
+  total: 0,
+  unfilteredTotal: 0,
+  page: 1,
+  pageSize: 10,
+  pageCount: 1,
+};
 
 export async function listDocuments(
   query: DocumentQuery = {},
   opts: { simulate?: Simulate; signal?: AbortSignal } = {},
 ): Promise<DocumentPage> {
   const simulate = opts.simulate ?? "ok";
-  await latency(simulate, opts.signal);
-  fail(simulate, [
+  await simulatedDelay(simulate, opts.signal);
+  simulatedFailure(simulate, [
     "Could not load documents",
-    "The document index returned 503. This is usually transient — retrying normally succeeds within a few seconds.",
+    "The document service did not respond. Your documents are safe — this view will recover on retry.",
     "ERR_INDEX_UNAVAILABLE",
   ]);
+  if (simulate === "empty") return { ...EMPTY_PAGE, pageSize: query.pageSize ?? 10 };
 
-  const source = simulate === "empty" ? [] : documents;
-  const { search = "", type = "All", status = "All", page = 1, pageSize = 10 } = query;
-  const q = search.trim().toLowerCase();
-
-  let rows = source.filter(
-    (d) =>
-      (type === "All" || d.type === type) &&
-      (status === "All" || d.status === status) &&
-      (q === "" ||
-        d.name.toLowerCase().includes(q) ||
-        d.id.toLowerCase().includes(q) ||
-        d.counterparty.toLowerCase().includes(q)),
-  );
-
+  const params = new URLSearchParams();
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  if (query.type && query.type !== "All") params.set("type", query.type);
+  if (query.status && query.status !== "All") params.set("status", query.status);
   if (query.sort) {
-    const { key, dir } = query.sort;
-    const sign = dir === "asc" ? 1 : -1;
-    rows = [...rows].sort((a, b) => {
-      const av = a[key] ?? -1;
-      const bv = b[key] ?? -1;
-      if (typeof av === "string" && typeof bv === "string") return sign * av.localeCompare(bv);
-      return sign * (Number(av) - Number(bv));
-    });
+    params.set("sort", query.sort.key);
+    params.set("dir", query.sort.dir);
   }
+  params.set("page", String(query.page ?? 1));
+  params.set("pageSize", String(query.pageSize ?? 10));
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
-  const safePage = Math.min(page, pageCount);
-
-  return {
-    rows: rows.slice((safePage - 1) * pageSize, safePage * pageSize),
-    total: rows.length,
-    unfilteredTotal: source.length,
-    page: safePage,
-    pageSize,
-    pageCount,
-  };
+  return request<DocumentPage>(`/api/documents?${params}`, { signal: opts.signal });
 }
 
 export async function getDocument(
@@ -284,17 +373,52 @@ export async function getDocument(
   opts: { simulate?: Simulate; signal?: AbortSignal } = {},
 ): Promise<DocumentDetail> {
   const simulate = opts.simulate ?? "ok";
-  await latency(simulate, opts.signal);
-  fail(simulate, [
+  await simulatedDelay(simulate, opts.signal);
+  simulatedFailure(simulate, [
     "Could not load this document",
-    "The extraction store returned 502 while fetching the analysis. The document itself is safe — only this view failed to load.",
+    "The document service failed while fetching this record. The document itself is safe — only this view failed to load.",
     "ERR_DETAIL_UNAVAILABLE",
   ]);
 
-  const doc = documents.find((d) => d.id === id);
-  if (!doc) throw new ApiError("Document not found", `No document matches ${id}. It may have been deleted.`, "ERR_NOT_FOUND", false);
-  return buildDetail(doc);
+  return request<DocumentDetail>(`/api/documents/${encodeURIComponent(id)}`, {
+    signal: opts.signal,
+  });
 }
+
+export type DocumentStatus = {
+  id: string;
+  status: DocumentSummary["status"];
+  risk: number | null;
+  verdict: DocumentSummary["verdict"];
+  progress?: { step: number; pct: number } | null;
+  error?: DocError | null;
+};
+
+/**
+ * The cheap poll for a document still in the pipeline.
+ *
+ * Screens watching a processing document call this on an interval instead of
+ * re-fetching the full detail payload every couple of seconds.
+ */
+export function getDocumentStatus(id: string, signal?: AbortSignal): Promise<DocumentStatus> {
+  return request<DocumentStatus>(`/api/documents/${encodeURIComponent(id)}/status`, { signal });
+}
+
+export type DocumentCounts = {
+  total: number;
+  queued: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  inFlight: number;
+};
+
+/** Library counts by lifecycle state — what the nav badges show. */
+export function getDocumentCounts(signal?: AbortSignal): Promise<DocumentCounts> {
+  return request<DocumentCounts>("/api/documents/counts", { signal });
+}
+
+/* -- Bulk actions -------------------------------------------------------- */
 
 export type BulkResult = {
   requested: number;
@@ -302,87 +426,113 @@ export type BulkResult = {
   failed: { id: string; name: string; reason: string }[];
 };
 
+/**
+ * UNBACKED: document-service defines the request and result schemas for bulk
+ * reprocess and delete (`BulkRequestSchema` / `BulkResultSchema`) but exposes
+ * no route for either.
+ *
+ * These report every id as failed with the real reason rather than pretending
+ * to succeed: a fake success would show the row changing state and then snap
+ * back on the next poll, which is worse than being told it is unavailable. The
+ * UI already renders per-id failure reasons, so this needs no special casing.
+ */
+function unsupported(ids: string[], rows: DocumentSummary[], reason: string): BulkResult {
+  const nameOf = (id: string) => rows.find((r) => r.id === id)?.name ?? id;
+  return {
+    requested: ids.length,
+    succeeded: [],
+    failed: ids.map((id) => ({ id, name: nameOf(id), reason })),
+  };
+}
+
 export async function reprocessDocuments(ids: string[]): Promise<BulkResult> {
-  await sleep(1400);
-  const succeeded: string[] = [];
-  const failed: BulkResult["failed"] = [];
-
-  for (const id of ids) {
-    const doc = documents.find((d) => d.id === id);
-    if (!doc) continue;
-    // Encrypted documents can never be reprocessed — that drives partial success.
-    if (doc.error && !doc.error.retryable) {
-      failed.push({ id, name: doc.name, reason: "Password protected — remove the restriction and re-upload." });
-      continue;
-    }
-    doc.status = "processing";
-    doc.error = undefined;
-    doc.risk = null;
-    doc.verdict = "Pending";
-    doc.progress = { step: 2, pct: 10 };
-    succeeded.push(id);
-  }
-
-  if (succeeded.length) invalidateCorpus();
-  return { requested: ids.length, succeeded, failed };
+  const { rows } = await listDocuments({ pageSize: 100 });
+  return unsupported(
+    ids,
+    rows,
+    "Reprocessing is not available yet — document-service exposes no reprocess route.",
+  );
 }
 
 export async function deleteDocuments(ids: string[]): Promise<BulkResult> {
-  await sleep(1100);
-  const succeeded: string[] = [];
-  const failed: BulkResult["failed"] = [];
-
-  for (const id of ids) {
-    const doc = documents.find((d) => d.id === id);
-    if (!doc) continue;
-    if (doc.status === "processing") {
-      failed.push({ id, name: doc.name, reason: "Still processing — cancel the job before deleting." });
-      continue;
-    }
-    succeeded.push(id);
-  }
-
-  documents = documents.filter((d) => !succeeded.includes(d.id));
-  invalidateCorpus();
-  return { requested: ids.length, succeeded, failed };
+  const { rows } = await listDocuments({ pageSize: 100 });
+  return unsupported(
+    ids,
+    rows,
+    "Deleting is not available yet — document-service exposes no delete route.",
+  );
 }
 
-export async function exportDocuments(ids: string[] | "all"): Promise<{ filename: string; rows: number }> {
-  await sleep(1500);
-  const rows = ids === "all" ? documents.length : ids.length;
-  return { filename: `documind-documents-${rows}.csv`, rows };
+/* -- Exports ------------------------------------------------------------- */
+
+export type ExportFile = { filename: string; rows: number; csv: string };
+
+const DOCUMENT_COLUMNS: [string, (d: DocumentSummary) => string | number][] = [
+  ["id", (d) => d.id],
+  ["name", (d) => d.name],
+  ["type", (d) => d.type],
+  ["status", (d) => d.status],
+  ["risk", (d) => d.risk ?? ""],
+  ["verdict", (d) => d.verdict],
+  ["pages", (d) => d.pages],
+  ["size_mb", (d) => d.sizeMb],
+  ["counterparty", (d) => d.counterparty],
+  ["uploaded_at", (d) => new Date(d.uploadedAt).toISOString()],
+];
+
+/**
+ * Builds the CSV from real rows.
+ *
+ * Export is legitimately a frontend job here — every column is already in the
+ * document payload, so round-tripping to a service to reformat data the client
+ * holds would add a failure mode and no information.
+ */
+export async function exportDocuments(ids: string[] | "all"): Promise<ExportFile> {
+  const { rows } = await listDocuments({ pageSize: 100 });
+  const selected = ids === "all" ? rows : rows.filter((r) => ids.includes(r.id));
+  return {
+    filename: `documind-documents-${selected.length}.csv`,
+    rows: selected.length,
+    csv: toCsv(DOCUMENT_COLUMNS.map(([h]) => h), selected.map((d) => DOCUMENT_COLUMNS.map(([, get]) => get(d)))),
+  };
 }
 
-/** Advance one processing document — drives the live-progress ticker. */
-export function tickProcessing(): void {
-  for (const doc of documents) {
-    if (doc.status !== "processing" || !doc.progress) continue;
-    const next = doc.progress.pct + 9;
-    if (next < 100) {
-      doc.progress = { ...doc.progress, pct: next };
-    } else if (doc.progress.step < 7) {
-      doc.progress = { step: doc.progress.step + 1, pct: 0 };
-    } else {
-      doc.status = "completed";
-      doc.risk = hash(doc.id) % 100;
-      doc.verdict = doc.risk >= 60 ? "Needs review" : "Auto-approved";
-      doc.flags = Math.max(0, Math.round(doc.risk / 24));
-      doc.progress = undefined;
-      // Only this transition changes what search can return; invalidating on
-      // every tick would rebuild the index several times a second.
-      invalidateCorpus();
-    }
-  }
+/** The dashboard export — the same KPI values the screen is showing. */
+export async function exportReport(range: DateRange): Promise<ExportFile> {
+  const dashboard = await getDashboard(range);
+  return {
+    filename: `documind-report-${range}.csv`,
+    rows: dashboard.kpis.length,
+    csv: toCsv(
+      ["metric", "value", "change", "basis"],
+      dashboard.kpis.map((k) => [k.label, k.value + (k.unit ?? ""), k.delta ?? "", k.footnote]),
+    ),
+  };
+}
+
+function toCsv(headers: string[], rows: (string | number)[][]): string {
+  const cell = (v: string | number) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [headers.join(","), ...rows.map((r) => r.map(cell).join(","))].join("\n");
 }
 
 /* -- Upload ------------------------------------------------------------- */
 
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
+/**
+ * Mirrors what document-service will actually accept, so a file that cannot
+ * possibly succeed is rejected before it is uploaded rather than after.
+ */
 export function validateFile(name: string, sizeMb: number): ValidationResult {
   const ext = (name.split(".").pop() ?? "").toLowerCase();
   if (!UPLOAD_LIMITS.extensions.includes(ext)) {
-    return { ok: false, reason: `.${ext || "unknown"} is not supported — upload ${UPLOAD_LIMITS.extensions.join(", ")}.` };
+    return {
+      ok: false,
+      reason: `.${ext || "unknown"} is not supported — upload ${UPLOAD_LIMITS.extensions.join(", ")}.`,
+    };
   }
   if (sizeMb > UPLOAD_LIMITS.maxMb) {
     return { ok: false, reason: `${sizeMb.toFixed(1)} MB exceeds the ${UPLOAD_LIMITS.maxMb} MB per-file limit.` };
@@ -390,53 +540,68 @@ export function validateFile(name: string, sizeMb: number): ValidationResult {
   return { ok: true };
 }
 
-export function classifyByName(name: string): DocType {
-  const n = name.toLowerCase();
-  if (n.includes("inv")) return "Invoice";
-  if (n.includes("amend")) return "Amendment";
-  if (n.includes("statement")) return "Statement";
-  return "Contract";
-}
-
 /**
- * Decides whether a simulated pipeline run fails, and where. Real code replaces
- * this with the status coming back from the job API.
+ * Uploads one file and returns the document document-service created.
+ *
+ * `XMLHttpRequest` rather than `fetch`, because it is the only API that
+ * reports upload progress — and a progress bar that reflects bytes actually
+ * sent is the whole point of the panel this feeds. The response is a *queued*
+ * document: the file is stored and a job is on the Redis stream, but nothing
+ * has been classified, extracted or scored. Callers follow it with
+ * `getDocumentStatus`.
  */
-export function pipelineOutcome(
-  name: string,
-  attempt: number,
-  forceFail: boolean,
-): { failAtStep: number; error: DocError } | null {
-  const seed = hash(name + attempt);
-  const shouldFail = forceFail || (attempt === 0 && seed % 5 === 0);
-  if (!shouldFail) return null;
-  const kinds = ["no_text_layer", "timeout", "classify"] as const;
-  return { failAtStep: 3 + (seed % 3), error: mockError(kinds[seed % kinds.length], seed % 97) };
-}
+export function uploadDocument(
+  file: File,
+  opts: { onProgress?: (pct: number) => void; signal?: AbortSignal } = {},
+): Promise<DocumentSummary> {
+  return new Promise((resolve, reject) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
 
-/** Registers a finished upload so it shows up in the documents list. */
-export function commitUpload(name: string, sizeMb: number, type: DocType): DocumentSummary {
-  const seed = hash(name + Date.now());
-  const risk = seed % 100;
-  const doc: DocumentSummary = {
-    id: `doc_${(seed >>> 4).toString(16).padStart(8, "0").slice(0, 8)}`,
-    name,
-    ext: (name.split(".").pop() ?? "pdf").toUpperCase(),
-    type,
-    status: "completed",
-    risk,
-    pages: 3 + (seed % 40),
-    sizeMb,
-    counterparty: "Unassigned counterparty",
-    uploaded: "Aug 25, 10:12",
-    uploadedAt: Date.now(),
-    time: "just now",
-    flags: Math.max(0, Math.round(risk / 24)),
-    verdict: risk >= 60 ? "Needs review" : "Auto-approved",
-  };
-  documents = [doc, ...documents];
-  invalidateCorpus();
-  return doc;
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/documents");
+    xhr.responseType = "json";
+
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) opts.onProgress?.(Math.round((e.loaded / e.total) * 100));
+    });
+
+    xhr.addEventListener("load", () => {
+      const payload = xhr.response as Record<string, unknown> | null;
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        // A new document changes what the palette and the scope counts can see.
+        invalidateCorpus();
+        invalidateLibrary();
+        resolve(payload as unknown as DocumentSummary);
+        return;
+      }
+
+      reject(
+        new ApiError(
+          (payload?.error as string) ?? "Upload failed",
+          (payload?.detail as string) ?? `The upload failed with ${xhr.status}.`,
+          (payload?.code as string) ?? "ERR_UPLOAD_FAILED",
+          (payload?.retryable as boolean) ?? xhr.status >= 500,
+        ),
+      );
+    });
+
+    xhr.addEventListener("error", () =>
+      reject(
+        new ApiError(
+          "Cannot reach DocuMind",
+          "The browser could not reach this app's API while uploading. Check your connection and retry.",
+          "ERR_NETWORK",
+        ),
+      ),
+    );
+
+    xhr.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    opts.signal?.addEventListener("abort", () => xhr.abort());
+
+    xhr.send(body);
+  });
 }
 
 /* -- Q&A ---------------------------------------------------------------- */
@@ -447,27 +612,70 @@ export type QaAnswer = {
   thinking: string;
 };
 
+/**
+ * Per-document Q&A.
+ *
+ * Retrieval is real — search-service ranks the passages. Generation is not:
+ * `ai-service` owns `POST /summarize` and does not exist, so when retrieval
+ * finds nothing this returns null and the UI shows its no-answer state rather
+ * than inventing a response.
+ *
+ * UNBACKED: the fallback to `answerFor` covers the reader fixtures, which are
+ * the only text the reader has until processing-service extracts real pages.
+ */
 export async function askDocument(
   question: string,
-  opts: { simulate?: Simulate; signal?: AbortSignal } = {},
+  opts: { simulate?: Simulate; signal?: AbortSignal; documentId?: string } = {},
 ): Promise<QaAnswer | null> {
   const simulate = opts.simulate ?? "ok";
-  await sleep(simulate === "slow" ? 2600 : 900, opts.signal);
-  fail(simulate, [
+  await simulatedDelay(simulate, opts.signal);
+  simulatedFailure(simulate, [
     "Answer generation failed",
-    "The retrieval service returned 500 before any tokens were produced. Nothing was charged — retry the question.",
+    "The retrieval service returned an error before any passages were ranked. Nothing was charged — retry the question.",
     "ERR_QA_UPSTREAM",
   ]);
-  const a = answerFor(question);
-  return a ? { text: a.text, citations: a.citations, thinking: a.thinking } : null;
+
+  const passages = await retrieve(question, { documentId: opts.documentId, signal: opts.signal });
+  if (passages.length > 0) {
+    return {
+      text: passages.map((p) => p.text).join("\n\n"),
+      citations: passages.map((p) => p.chunkId),
+      thinking: `Ranked ${passages.length} passages from this document`,
+    };
+  }
+
+  const fixture = answerFor(question);
+  return fixture
+    ? { text: fixture.text, citations: fixture.citations, thinking: fixture.thinking }
+    : null;
+}
+
+/* -- Retrieval ----------------------------------------------------------- */
+
+export type Passage = {
+  chunkId: string;
+  documentId: string;
+  text: string;
+  page: number | null;
+  similarity: number;
+};
+
+/** Ranked passages from search-service, optionally narrowed to one document. */
+export async function retrieve(
+  question: string,
+  opts: { documentId?: string; topK?: number; signal?: AbortSignal } = {},
+): Promise<Passage[]> {
+  const params = new URLSearchParams({ q: question });
+  if (opts.documentId) params.set("documentId", opts.documentId);
+  if (opts.topK) params.set("topK", String(opts.topK));
+
+  const { passages } = await request<{ passages: Passage[] }>(`/api/search?${params}`, {
+    signal: opts.signal,
+  });
+  return passages;
 }
 
 /* -- Workspace Q&A ------------------------------------------------------ */
-
-/** How many documents a scope covers — shown before and after a question. */
-export function scopeSize(scope: ChatScope): number {
-  return scope === "All" ? documents.length : documents.filter((d) => d.type === scope).length;
-}
 
 export type WorkspaceAnswer = {
   text: string;
@@ -476,37 +684,111 @@ export type WorkspaceAnswer = {
   searched: number;
 };
 
-/** Null means the corpus genuinely has nothing to say — not an error. */
+/**
+ * Workspace-wide Q&A over the real vector index.
+ *
+ * Null means retrieval genuinely had nothing to return — an empty index, or no
+ * passage above the similarity floor — which is the honest state until
+ * processing-service starts indexing extracted text. It is not an error, and
+ * the UI renders it as "no answer".
+ */
 export async function askWorkspace(
   question: string,
   scope: ChatScope,
   opts: { simulate?: Simulate; signal?: AbortSignal } = {},
 ): Promise<WorkspaceAnswer | null> {
   const simulate = opts.simulate ?? "ok";
-  await sleep(simulate === "slow" ? 2800 : 1000, opts.signal);
-  fail(simulate, [
+  await simulatedDelay(simulate, opts.signal);
+  simulatedFailure(simulate, [
     "Answer generation failed",
-    "The retrieval service returned 500 before any passages were ranked. Nothing was charged — retry the question.",
+    "The retrieval service returned an error before any passages were ranked. Nothing was charged — retry the question.",
     "ERR_RAG_UPSTREAM",
   ]);
+  if (simulate === "empty") return null;
 
-  const searched = scopeSize(scope);
-  if (searched === 0) return null;
+  const library = await loadLibrary(opts.signal);
+  const inScope = scope === "All" ? library : library.filter((d) => d.type === scope);
+  if (inScope.length === 0) return null;
 
-  const answer = chatAnswerFor(question);
-  if (!answer) return null;
+  const passages = await retrieve(question, { topK: 8, signal: opts.signal });
+  const byId = new Map(inScope.map((d) => [d.id, d]));
 
-  // A scoped question only cites documents inside that scope.
-  const citations =
-    scope === "All" ? answer.citations : answer.citations.filter((c) => c.docType === scope);
+  // Retrieval has no scope filter, so a scoped question keeps only the hits
+  // that landed in a document the user actually asked about.
+  const citations: WorkspaceCitation[] = [];
+  for (const p of passages) {
+    const doc = byId.get(p.documentId);
+    if (!doc) continue;
+    citations.push({
+      id: p.chunkId,
+      docId: doc.id,
+      docName: doc.name,
+      docType: doc.type,
+      page: p.page ?? 1,
+      context: p.page ? `page ${p.page}` : "matched passage",
+      snippet: p.text,
+    });
+  }
+
   if (citations.length === 0) return null;
 
-  return { text: answer.text, citations, thinking: answer.thinking, searched };
+  return {
+    // Extractive, not generated: these are the retrieved passages verbatim.
+    // A written answer needs ai-service, which is not deployed.
+    text: citations.map((c) => c.snippet).join("\n\n"),
+    citations,
+    thinking: `Ranked ${passages.length} passages across ${inScope.length} documents`,
+    searched: inScope.length,
+  };
 }
 
-/** The blocks that make up one page of the document reader. */
+/** The blocks that make up one page of the document reader.
+ *  UNBACKED: extracted page text needs processing-service. */
 export function getPage(page: number): SourceBlock[] {
   return QA_PAGES[page] ?? QA_FALLBACK;
+}
+
+/* -- Library cache ------------------------------------------------------- */
+
+/**
+ * The document list, cached briefly for the callers that need the whole
+ * library rather than a page of it — the command palette and the chat scope
+ * counter, both of which run on every keystroke.
+ */
+const LIBRARY_TTL_MS = 20_000;
+
+let libraryCache: { at: number; rows: DocumentSummary[] } | null = null;
+let libraryInFlight: Promise<DocumentSummary[]> | null = null;
+
+export function invalidateLibrary(): void {
+  libraryCache = null;
+  libraryInFlight = null;
+}
+
+async function loadLibrary(signal?: AbortSignal): Promise<DocumentSummary[]> {
+  if (libraryCache && Date.now() - libraryCache.at < LIBRARY_TTL_MS) return libraryCache.rows;
+  // Coalesce concurrent callers — the palette and the scope counter otherwise
+  // issue the same request twice on the same keystroke.
+  if (libraryInFlight) return libraryInFlight;
+
+  libraryInFlight = listDocuments({ pageSize: 100, sort: { key: "uploadedAt", dir: "desc" } }, { signal })
+    .then(({ rows }) => {
+      libraryCache = { at: Date.now(), rows };
+      libraryInFlight = null;
+      return rows;
+    })
+    .catch((e) => {
+      libraryInFlight = null;
+      throw e;
+    });
+
+  return libraryInFlight;
+}
+
+/** How many documents a scope covers — shown before and after a question. */
+export async function scopeSize(scope: ChatScope, signal?: AbortSignal): Promise<number> {
+  const rows = await loadLibrary(signal);
+  return scope === "All" ? rows.length : rows.filter((d) => d.type === scope).length;
 }
 
 /* -- Global search ------------------------------------------------------- */
@@ -514,16 +796,14 @@ export function getPage(page: number): SourceBlock[] {
 /**
  * The one entry point for the command palette.
  *
- * The index lives behind this function, never in a component: the caller sends
- * a query string and receives only the ranked page of hits it is about to
- * render — never the corpus. Replacing the body with
- * `fetch("/api/search?q=…")` is therefore a local change, and the palette,
- * ranking contract and result shapes all stay exactly as they are.
+ * The index is built from the real document library and cached behind this
+ * seam, never in a component: the caller sends a query string and receives
+ * only the ranked page of hits it is about to render.
  *
- * Latency is kept far below `BASE_LATENCY`: search is typed-into, so it has to
- * feel like a local index even while it is one.
+ * Latency is kept low deliberately: search is typed-into, so it has to feel
+ * like a local index — which, for everything except the document list fetch
+ * behind `loadLibrary`, it is.
  */
-const SEARCH_LATENCY = 90;
 
 /** Trimmed per group so no single kind can crowd out the others. */
 const GROUP_CAP: Record<SearchKind, number> = {
@@ -543,18 +823,15 @@ export async function searchWorkspace(
   const started = Date.now();
   const simulate = opts.simulate ?? "ok";
 
-  await sleep(
-    simulate === "slow" ? 2200 : SEARCH_LATENCY + Math.random() * 70,
-    opts.signal,
-  );
-  fail(simulate, [
+  await simulatedDelay(simulate, opts.signal);
+  simulatedFailure(simulate, [
     "Search is unavailable",
-    "The search index did not respond. Your documents are unaffected — this view will recover on retry.",
+    "The document library did not respond. Your documents are unaffected — this view will recover on retry.",
     "ERR_SEARCH_UNAVAILABLE",
   ]);
 
   const q = query.trim();
-  const source = simulate === "empty" ? [] : documents;
+  const source = simulate === "empty" ? [] : await loadLibrary(opts.signal);
 
   // No query: offer destinations and what changed most recently, rather than
   // an empty box the user has to guess their way out of.
@@ -562,7 +839,10 @@ export async function searchWorkspace(
     const entries = suggestions(source);
     return {
       query: "",
-      groups: groupHits(entries.map((e) => ({ entry: e, score: e.weight ?? 0 })), []),
+      groups: groupHits(
+        entries.map((e) => ({ entry: e, score: e.weight ?? 0 })),
+        [],
+      ),
       total: entries.length,
       tookMs: Date.now() - started,
       suggested: true,
@@ -589,15 +869,12 @@ export async function searchWorkspace(
 }
 
 /** Buckets by kind in display order, deduping, then capping each and the whole. */
-function groupHits(
-  scored: { entry: Indexed; score: number }[],
-  terms: string[],
-): SearchGroup[] {
+function groupHits(scored: { entry: Indexed; score: number }[], terms: string[]): SearchGroup[] {
   const byKind = new Map<SearchKind, { entry: Indexed; score: number; also: number }[]>();
-  // Findings and fields come from analysis fixtures shared across documents,
-  // so the same title legitimately appears many times. Showing it once with a
-  // count reads as a finding about the corpus; showing it eight times reads as
-  // a broken palette. `scored` is already sorted, so the first is the best.
+  // Findings and fields come from analysis shared across documents, so the same
+  // title legitimately appears many times. Showing it once with a count reads
+  // as a finding about the corpus; showing it eight times reads as a broken
+  // palette. `scored` is already sorted, so the first is the best.
   const collapsed = new Map<string, { entry: Indexed; score: number; also: number }>();
 
   for (const s of scored) {

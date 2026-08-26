@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { DOCUMENTS } from "@/lib/mock/data";
+import { fetchDocument } from "@/lib/server/documents";
 import { DocumentDetailView } from "./detail-view";
 
 export async function generateMetadata({
   params,
 }: PageProps<"/documents/[id]">): Promise<Metadata> {
   const { id } = await params;
-  const doc = DOCUMENTS.find((d) => d.id === id);
+  const doc = await fetchDocument(id);
   return { title: `${doc?.name ?? "Document"} · DocuMind AI` };
 }
 

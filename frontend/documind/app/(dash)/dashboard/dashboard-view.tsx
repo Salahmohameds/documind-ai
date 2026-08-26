@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { exportReport, getDashboard, tickProcessing, type Simulate } from "@/lib/api";
+import { exportReport, getDashboard } from "@/lib/api";
 import { useAction, useAsync } from "@/lib/use-async";
-import { RANGE_DATES, RANGE_LABEL, WORKSPACE } from "@/lib/mock/data";
+import { RANGE_LABEL, WORKSPACE, rangeDates } from "@/lib/mock/data";
+import { downloadCsv } from "@/lib/download";
 import type { DateRange } from "@/lib/types";
 import { riskTone, v } from "@/lib/design";
 import { buildChart, buildGaugeTicks } from "@/lib/chart";
@@ -25,7 +26,6 @@ import {
   ErrorPanel,
   InlineError,
   Spinner,
-  StateSwitcher,
   Toaster,
   useToasts,
 } from "@/components/documind/feedback";
@@ -49,46 +49,36 @@ const KPI_ICONS = { bars: BarsIcon, warning: WarningIcon, shield: ShieldIcon, cl
 const TH = "h-auto px-0 pb-2 text-[10px] font-semibold tracking-[.08em] uppercase text-[var(--text-3)]";
 const RANGES: DateRange[] = ["7d", "30d", "90d"];
 
-const SIMULATIONS = [
-  { value: "ok" as const, label: "Default" },
-  { value: "slow" as const, label: "Slow" },
-  { value: "partial" as const, label: "Partial" },
-  { value: "empty" as const, label: "Empty" },
-  { value: "error" as const, label: "Error" },
-];
-
 export function DashboardView() {
-  const [simulate, setSimulate] = useState<Simulate>("ok");
   const [range, setRange] = useState<DateRange>("30d");
   const { toasts, push, update, dismiss } = useToasts();
 
-  const dash = useAsync((signal) => getDashboard(range, { simulate, signal }), [range, simulate]);
+  const dash = useAsync((signal) => getDashboard(range, { signal }), [range]);
   const exportAction = useAction(exportReport);
 
-  // Flagged rows that are mid-pipeline keep moving while the dashboard is open.
+  // Anything mid-pipeline means the numbers are still moving, so the dashboard
+  // re-reads itself until the queue drains.
   const { data: dashData, reload: reloadDash } = dash;
   useEffect(() => {
-    const live = dashData?.flagged.some((d) => d.status === "processing");
-    if (!live || simulate !== "ok") return;
-    const t = setInterval(() => {
-      tickProcessing();
-      reloadDash();
-    }, 2600);
+    const live = dashData?.flagged.some((d) => d.status === "processing" || d.status === "queued");
+    if (!live) return;
+    const t = setInterval(reloadDash, 4000);
     return () => clearInterval(t);
-  }, [dashData, reloadDash, simulate]);
+  }, [dashData, reloadDash]);
 
   async function runExport() {
     const id = push({ tone: "--accent", glyph: "", pending: true, title: "Building report…", body: `${RANGE_LABEL[range]} · all panels included.` }, 0);
     const result = await exportAction.run(range);
     if (result) {
-      update(id, { pending: false, tone: "--ok", glyph: "✓", title: "Report ready", body: `${result.filename} · ${result.rows.toLocaleString()} documents.` });
+      downloadCsv(result);
+      update(id, { pending: false, tone: "--ok", glyph: "✓", title: "Report downloaded", body: `${result.filename} · ${result.rows} metrics.` });
     } else {
-      update(id, { pending: false, tone: "--bad", glyph: "✕", title: "Export failed", body: "The report service did not respond. Try again." });
+      update(id, { pending: false, tone: "--bad", glyph: "✕", title: "Export failed", body: exportAction.error?.detail ?? "The report could not be built. Try again." });
     }
   }
 
   const data = dash.data;
-  const chart = buildChart(data?.seriesSeed ?? 0);
+  const chart = buildChart(data?.series ?? []);
   const ticks = buildGaugeTicks(data?.gauge.pct ?? 0);
   const loading = dash.status === "loading";
 
@@ -107,7 +97,7 @@ export function DashboardView() {
         <div className="ml-auto flex items-center gap-2">
           <Button variant="surface" size="dm" className="hidden font-medium text-[var(--text)] xl:inline-flex">
             <CalendarIcon size={14} color="var(--text-3)" />
-            {RANGE_DATES[range]}
+            {rangeDates(range)}
           </Button>
 
           {/* Portaled, so the panel can't be trapped behind the KPI cards the
@@ -178,7 +168,7 @@ export function DashboardView() {
         />
       )}
 
-      {loading && <DashboardSkeleton slow={simulate === "slow"} />}
+      {loading && <DashboardSkeleton />}
 
       {data && dash.status !== "error" && !loading && (
         <div
@@ -199,7 +189,10 @@ export function DashboardView() {
             {data.kpis.map((kpi) => {
               const Icon = KPI_ICONS[kpi.icon];
               const Trend = kpi.direction === "up" ? TrendUpIcon : TrendDownIcon;
-              const zero = kpi.value === "0";
+              // A KPI with no delta is a live gauge, not a period total —
+              // there is nothing to compare it against, so no pill is shown.
+              const showDelta = kpi.delta !== undefined && kpi.value !== "0";
+              const deltaTone = kpi.deltaTone ?? "--idle";
               return (
                 <Lift key={kpi.key} as={Card} className="gap-3 rounded-[14px] p-[18px]">
                   <div className="flex items-center gap-2.5">
@@ -221,12 +214,12 @@ export function DashboardView() {
                       {kpi.value}
                       {kpi.unit && <span className="text-[15px] font-semibold text-[var(--text-3)]">{kpi.unit}</span>}
                     </Anim>
-                    {!zero && (
+                    {showDelta && (
                       <span
                         className="inline-flex items-center gap-[3px] rounded-full px-2 py-1 text-[11px] font-semibold"
-                        style={{ color: v(kpi.deltaTone), background: v(kpi.deltaTone, "-soft") }}
+                        style={{ color: v(deltaTone), background: v(deltaTone, "-soft") }}
                       >
-                        <Trend size={11} color={v(kpi.deltaTone)} />
+                        <Trend size={11} color={v(deltaTone)} />
                         {kpi.delta}
                       </span>
                     )}
@@ -255,7 +248,7 @@ export function DashboardView() {
                 </div>
               </div>
 
-              {data.seriesSeed < 0 ? (
+              {data.volume === 0 ? (
                 <div className="flex h-36 flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-[var(--border-strong)]">
                   <span className="text-[13px] font-medium text-[var(--text)]">No ingestion in this period</span>
                   <span className="text-[12px] text-[var(--text-2)]">
@@ -265,8 +258,8 @@ export function DashboardView() {
               ) : (
                 <div className="flex gap-2">
                   <div className="flex h-36 w-[22px] flex-none flex-col items-end justify-between pt-[3.5px] pb-[1.5px] font-mono text-[9px] leading-none text-[var(--text-3)]">
-                    {[60, 45, 30, 15, 0].map((n) => (
-                      <span key={n}>{n}</span>
+                    {chart.ticks.map((n, i) => (
+                      <span key={i}>{n}</span>
                     ))}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -484,7 +477,7 @@ export function DashboardView() {
             </Anim>
           </Stagger>
 
-          {data.seriesSeed < 0 && (
+          {data.volume === 0 && (
             <EmptyPanel
               compact
               title="This workspace has no processed documents yet"
@@ -502,12 +495,11 @@ export function DashboardView() {
       )}
 
       <Toaster toasts={toasts} onDismiss={dismiss} />
-      <StateSwitcher value={simulate} options={SIMULATIONS} onChange={setSimulate} />
     </div>
   );
 }
 
-function DashboardSkeleton({ slow }: { slow: boolean }) {
+function DashboardSkeleton() {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -550,7 +542,7 @@ function DashboardSkeleton({ slow }: { slow: boolean }) {
       <div className="flex items-center justify-center gap-2.5 pt-1">
         <Spinner size={12} />
         <span className="text-xs text-[var(--text-3)]">
-          {slow ? "Still aggregating — the warehouse is slow right now…" : "Loading operations metrics…"}
+          Loading operations metrics…
         </span>
       </div>
     </div>

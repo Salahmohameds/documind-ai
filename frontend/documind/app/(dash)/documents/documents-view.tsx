@@ -7,13 +7,12 @@ import {
   exportDocuments,
   listDocuments,
   reprocessDocuments,
-  tickProcessing,
   type DocumentQuery,
-  type Simulate,
   type SortKey,
 } from "@/lib/api";
 import { useAction, useAsync, useDebounced } from "@/lib/use-async";
 import { PIPELINE_STEPS } from "@/lib/mock/data";
+import { downloadCsv } from "@/lib/download";
 import { STATUS, riskTone, tonedPill } from "@/lib/design";
 import type { DocType, DocumentSummary } from "@/lib/types";
 import {
@@ -27,7 +26,6 @@ import {
   EmptyPanel,
   ErrorPanel,
   Spinner,
-  StateSwitcher,
   Toaster,
   useToasts,
 } from "@/components/documind/feedback";
@@ -41,13 +39,6 @@ const TYPES: (DocType | "All")[] = ["All", "Invoice", "Contract", "Amendment", "
 const STATUSES: (DocumentSummary["status"] | "All")[] = ["All", "completed", "processing", "failed", "queued"];
 const SIZES = [10, 25, 50];
 const SKELETON_WIDTHS = [58, 44, 51, 39, 62, 47, 55, 42, 60, 49];
-
-const SIMULATIONS = [
-  { value: "ok" as const, label: "Default" },
-  { value: "slow" as const, label: "Slow" },
-  { value: "empty" as const, label: "Empty" },
-  { value: "error" as const, label: "Error" },
-];
 
 const headerCell: CSSProperties = {
   fontSize: 10,
@@ -210,7 +201,6 @@ function MenuItem({
 /* -- Page ---------------------------------------------------------------- */
 
 export function DocumentsView() {
-  const [simulate, setSimulate] = useState<Simulate>("ok");
   const [rawQuery, setRawQuery] = useState("");
   const search = useDebounced(rawQuery);
   const [type, setType] = useState<DocType | "All">("All");
@@ -228,8 +218,8 @@ export function DocumentsView() {
   );
 
   const docs = useAsync(
-    (signal) => listDocuments(query, { simulate, signal }),
-    [search, type, status, sort.key, sort.dir, page, pageSize, simulate],
+    (signal) => listDocuments(query, { signal }),
+    [search, type, status, sort.key, sort.dir, page, pageSize],
   );
 
   // Any change to the result set starts again from page 1.
@@ -241,19 +231,16 @@ export function DocumentsView() {
   const onType = changeQuery<DocType | "All">(setType);
   const onStatus = changeQuery<DocumentSummary["status"] | "All">(setStatus);
   const onPageSize = changeQuery<number>(setPageSize);
-  const onSimulate = changeQuery<Simulate>(setSimulate);
 
-  // Live pipeline ticker — processing rows advance on their own.
+  // Rows still in the pipeline are re-read from document-service until they
+  // settle. The interval is the poll; nothing advances a row locally.
   const { data: docPage, reload } = docs;
   useEffect(() => {
-    const anyProcessing = docPage?.rows.some((d) => d.status === "processing");
-    if (!anyProcessing || simulate !== "ok") return;
-    const t = setInterval(() => {
-      tickProcessing();
-      reload();
-    }, 2200);
+    const inFlight = docPage?.rows.some((d) => d.status === "processing" || d.status === "queued");
+    if (!inFlight) return;
+    const t = setInterval(reload, 3000);
     return () => clearInterval(t);
-  }, [docPage, reload, simulate]);
+  }, [docPage, reload]);
 
   const deleteAction = useAction(deleteDocuments);
   const reprocessAction = useAction(reprocessDocuments);
@@ -322,9 +309,10 @@ export function DocumentsView() {
     const id = push({ tone: "--accent", glyph: "", pending: true, title: "Preparing export…", body: "Building the CSV — this usually takes a few seconds." }, 0);
     const result = await exportAction.run(ids);
     if (result) {
-      update(id, { pending: false, tone: "--ok", glyph: "✓", title: "Export ready", body: `${result.filename} · ${result.rows} rows.`, action: { label: "Download", onClick: () => dismiss(id) } });
+      downloadCsv(result);
+      update(id, { pending: false, tone: "--ok", glyph: "✓", title: "Export downloaded", body: `${result.filename} · ${result.rows} rows.`, action: { label: "Dismiss", onClick: () => dismiss(id) } });
     } else {
-      update(id, { pending: false, tone: "--bad", glyph: "✕", title: "Export failed", body: "The export service did not respond. Try again." });
+      update(id, { pending: false, tone: "--bad", glyph: "✕", title: "Export failed", body: exportAction.error?.detail ?? "The document library did not respond. Try again." });
     }
   }
 
@@ -492,11 +480,6 @@ export function DocumentsView() {
           detail={docs.error.detail}
           code={docs.error.code}
           onRetry={docs.retry}
-          actions={
-            <Button variant="surface" size="dmQuiet" onClick={() => onSimulate("ok")}>
-              Switch to a healthy index
-            </Button>
-          }
         />
       )}
 
@@ -546,7 +529,7 @@ export function DocumentsView() {
           >
             <Spinner size={12} />
             <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-              {simulate === "slow" ? "Still querying the index — this one is slow…" : "Loading documents — querying index…"}
+              Loading documents — querying index…
             </span>
           </div>
         </div>
@@ -828,7 +811,6 @@ export function DocumentsView() {
       />
 
       <Toaster toasts={toasts} onDismiss={dismiss} />
-      <StateSwitcher value={simulate} options={SIMULATIONS} onChange={onSimulate} />
     </div>
   );
 }
