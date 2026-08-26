@@ -75,3 +75,4 @@ def test_search_is_not_empty_for_seeded_corpus(client):
     r = client.get("/search", params={"question": "invoice", "top_k": 10})
     assert r.status_code == 200
     assert r.json()["results"], "empty result set against a seeded store"
+    
