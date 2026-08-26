@@ -1,0 +1,409 @@
+{
+  "seed": 42,
+  "contracts": 20,
+  "invoices": 30,
+  "total_documents": 50,
+  "total_rag_questions": 270,
+  "documents": [
+    {
+      "document_id": "contract_0000",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0001",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0002",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0003",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0004",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0005",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "HIGH",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0006",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0007",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0008",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "HIGH",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0009",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0010",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0011",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "HIGH",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0012",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "HIGH",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0013",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0014",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "HIGH",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0015",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0016",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0017",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0018",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "contract_0019",
+      "type": "CONTRACT",
+      "pages": 4,
+      "risk_band": "MEDIUM",
+      "pii_count": 5,
+      "rag_question_count": 6
+    },
+    {
+      "document_id": "invoice_0000",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0001",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0002",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0003",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0004",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0005",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0006",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0007",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0008",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0009",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0010",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0011",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0012",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0013",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0014",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0015",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0016",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0017",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0018",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0019",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0020",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0021",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0022",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0023",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0024",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0025",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0026",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0027",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0028",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    },
+    {
+      "document_id": "invoice_0029",
+      "type": "INVOICE",
+      "pages": 1,
+      "risk_band": "LOW",
+      "pii_count": 5,
+      "rag_question_count": 5
+    }
+  ]
+}
