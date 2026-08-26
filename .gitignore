@@ -94,3 +94,6 @@ tests/load/results/
 
 # Local upload storage — generated when running document-service locally
 services/*/storage/
+
+# Generated edge-case fixtures — rebuild with tests/fixtures/generator/edge_cases.py
+tests/fixtures/edge-cases/
