@@ -31,8 +31,8 @@ import type {
  *
  * Every function here is async and returns exactly the shape the screens
  * render. The bodies now call this app's own `/api/…` route handlers, which
- * are the only code that knows where `document-service` and `search-service`
- * live — see `app/api/` and `lib/server/backend.ts`.
+ * are the only code that knows where `document-service`, `search-service` and
+ * `ai-service` live — see `app/api/` and `lib/server/backend.ts`.
  *
  * Two things are still local, and are marked `UNBACKED` where they appear:
  * authentication (no `api-gateway` yet) and the per-document reader fixtures
@@ -615,10 +615,14 @@ export type QaAnswer = {
 /**
  * Per-document Q&A.
  *
- * Retrieval is real — search-service ranks the passages. Generation is not:
- * `ai-service` owns `POST /summarize` and does not exist, so when retrieval
- * finds nothing this returns null and the UI shows its no-answer state rather
- * than inventing a response.
+ * Both halves are real now: search-service ranks the passages and ai-service
+ * writes the answer from them. Two calls rather than one because ai-service
+ * deliberately does not retrieve — that boundary is what lets retrieval
+ * quality and answer quality be measured separately.
+ *
+ * Null means there is genuinely no answer: either retrieval returned nothing,
+ * or ai-service refused because the passages do not support one. Neither is an
+ * error, and the UI renders both as its no-answer state.
  *
  * UNBACKED: the fallback to `answerFor` covers the reader fixtures, which are
  * the only text the reader has until processing-service extracts real pages.
@@ -637,10 +641,20 @@ export async function askDocument(
 
   const passages = await retrieve(question, { documentId: opts.documentId, signal: opts.signal });
   if (passages.length > 0) {
+    const generated = await generate(question, passages, opts.signal);
+    if (generated?.refused) return null;
+
     return {
-      text: passages.map((p) => p.text).join("\n\n"),
-      citations: passages.map((p) => p.chunkId),
-      thinking: `Ranked ${passages.length} passages from this document`,
+      text: generated ? generated.text : passages.map((p) => p.text).join("\n\n"),
+      // Chunk ids either way, so the reader resolves a citation the same
+      // whether ai-service chose the subset or generation was unavailable and
+      // we fell back to every retrieved passage.
+      citations: generated
+        ? generated.citations.map((c) => c.chunkId)
+        : passages.map((p) => p.chunkId),
+      thinking: generated
+        ? `Answered from ${generated.citations.length} of ${passages.length} ranked passages`
+        : `Ranked ${passages.length} passages from this document`,
     };
   }
 
@@ -675,6 +689,46 @@ export async function retrieve(
   return passages;
 }
 
+/* -- Generation ---------------------------------------------------------- */
+
+export type GeneratedAnswer = {
+  text: string;
+  citations: { chunkId: string; documentId: string | null; page: number | null; snippet: string }[];
+  /** True when every citation marker resolved to a passage we supplied. */
+  grounded: boolean;
+  /** ai-service saying the passages do not answer the question. */
+  refused: boolean;
+  confidence: number;
+  model: string | null;
+};
+
+/**
+ * Turns retrieved passages into a written, cited answer via ai-service.
+ *
+ * Returns null when ai-service cannot be reached, which is a deliberate soft
+ * failure: retrieval already succeeded, so the caller can still show the user
+ * the passages that matched rather than an error for a question that was
+ * answered. A refusal is not a failure and comes back as `refused: true`.
+ */
+async function generate(
+  question: string,
+  passages: Passage[],
+  signal?: AbortSignal,
+): Promise<GeneratedAnswer | null> {
+  try {
+    return await request<GeneratedAnswer>("/api/answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, passages }),
+      signal,
+    });
+  } catch (cause) {
+    // The caller navigated away — not something to paper over with passages.
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    return null;
+  }
+}
+
 /* -- Workspace Q&A ------------------------------------------------------ */
 
 export type WorkspaceAnswer = {
@@ -687,10 +741,15 @@ export type WorkspaceAnswer = {
 /**
  * Workspace-wide Q&A over the real vector index.
  *
- * Null means retrieval genuinely had nothing to return — an empty index, or no
- * passage above the similarity floor — which is the honest state until
- * processing-service starts indexing extracted text. It is not an error, and
- * the UI renders it as "no answer".
+ * Retrieval is scoped here rather than upstream: search-service has no
+ * document-type filter, so a scoped question keeps only the hits that landed
+ * in a document the user asked about, and only those passages are sent to
+ * ai-service to be written up.
+ *
+ * Null means there is genuinely no answer — an empty index, no passage above
+ * the similarity floor, nothing inside the scope, or ai-service refusing
+ * because the passages do not support one. None of those is an error, and the
+ * UI renders them all as "no answer".
  */
 export async function askWorkspace(
   question: string,
@@ -732,12 +791,29 @@ export async function askWorkspace(
 
   if (citations.length === 0) return null;
 
+  // Only the in-scope passages are worth paying to generate over, so the
+  // filtered set — not everything retrieval returned — is what gets sent.
+  const inScopeIds = new Set(citations.map((c) => c.id));
+  const generated = await generate(
+    question,
+    passages.filter((p) => inScopeIds.has(p.chunkId)),
+    opts.signal,
+  );
+  if (generated?.refused) return null;
+
   return {
-    // Extractive, not generated: these are the retrieved passages verbatim.
-    // A written answer needs ai-service, which is not deployed.
-    text: citations.map((c) => c.snippet).join("\n\n"),
-    citations,
-    thinking: `Ranked ${passages.length} passages across ${inScope.length} documents`,
+    // Falls back to the retrieved passages verbatim when ai-service is
+    // unreachable: extractive is worse than a written answer, but it is still
+    // the document's own words rather than nothing.
+    text: generated ? generated.text : citations.map((c) => c.snippet).join("\n\n"),
+    // The cited subset when ai-service picked one, so the sources panel shows
+    // what the answer actually leans on.
+    citations: generated
+      ? citations.filter((c) => generated.citations.some((g) => g.chunkId === c.id))
+      : citations,
+    thinking: generated
+      ? `Answered from ${generated.citations.length} of ${citations.length} in-scope passages across ${inScope.length} documents`
+      : `Ranked ${passages.length} passages across ${inScope.length} documents`,
     searched: inScope.length,
   };
 }

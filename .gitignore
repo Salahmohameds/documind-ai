@@ -82,3 +82,9 @@ artifacts/
 tests/fixtures/documents/
 tests/fixtures/text/
 tests/fixtures/ground-truth/
+# ---- Local service runtime state (never commit) ----
+# search-service persists its `memory`/`local` vector store here; it is rebuilt
+# by re-indexing and holds whatever documents that machine happened to index.
+services/search-service/local_vector_store.json
+# document-service's local storage backend when STORAGE_TYPE=local.
+.local-storage/

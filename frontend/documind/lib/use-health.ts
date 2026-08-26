@@ -47,7 +47,10 @@ export function useHealth(): Health {
           label: unhappy.length === 0 ? "All services ready" : `${unhappy.length} service${unhappy.length === 1 ? "" : "s"} degraded`,
           detail:
             unhappy.length === 0
-              ? "document-service and search-service are both ready."
+              // Named rather than counted: which services back the app is
+              // exactly what this tooltip exists to answer, and the list grows
+              // as services land.
+              ? `${report.services.map((s) => s.service).join(", ")} are ready.`
               : unhappy.map((s) => `${s.service}: ${s.detail}`).join(" "),
           services: report.services,
         });

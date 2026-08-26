@@ -54,10 +54,40 @@ services:
       LOG_LEVEL: INFO
       PROMPTS_DIR: app/prompts
     ports:
-      - "8081:8080"
+      # 8082, not 8081: document-service below owns 8081, and the frontend's
+      # DOCUMENT_SERVICE_URL defaults to it.
+      - "8082:8080"
     healthcheck:
       # Uses the readiness probe, so compose agrees with Kubernetes about what
       # "up" means for this service.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/readiness', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  document-service:
+    build:
+      context: ./services/document-service
+    container_name: documind-document-service
+    environment:
+      PORT: 8080
+      SERVICE_NAME: document-service
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql://documind:documind_dev_only@postgres:5432/documind
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_TYPE: local
+      STORAGE_DIR: /app/storage
+    ports:
+      - "8081:8080"
+    volumes:
+      - documind_docstorage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/readiness', timeout=3).status == 200 else 1)"]
       interval: 10s
       timeout: 5s
@@ -88,3 +118,4 @@ services:
 
 volumes:
   documind_pgdata:
+  documind_docstorage:

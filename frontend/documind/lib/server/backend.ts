@@ -3,8 +3,8 @@
  *
  * Only route handlers under `app/api/` import this. The browser never learns a
  * service URL or a service token: it talks to `/api/…` on the same origin, and
- * this module is the only place that knows where `document-service` and
- * `search-service` actually live.
+ * this module is the only place that knows where `document-service`,
+ * `search-service` and `ai-service` actually live.
  */
 
 /** Where each service listens. Overridden per environment; never hard-coded in a component. */
@@ -14,6 +14,15 @@ export const DOCUMENT_SERVICE_URL = (
 
 export const SEARCH_SERVICE_URL = (
   process.env.SEARCH_SERVICE_URL ?? "http://localhost:8080"
+).replace(/\/+$/, "");
+
+/**
+ * `ai-service` generates the written answer from passages `search-service` has
+ * already retrieved. It deliberately does not retrieve, so it is only ever
+ * reached after a search — see `app/api/answer/route.ts`.
+ */
+export const AI_SERVICE_URL = (
+  process.env.AI_SERVICE_URL ?? "http://localhost:8082"
 ).replace(/\/+$/, "");
 
 /**
@@ -134,8 +143,9 @@ export async function call<T>(
 /**
  * Turns whatever a service returned on an error into the standard envelope.
  *
- * document-service returns the envelope already; FastAPI's own validation and
- * `HTTPException` return `{detail}`; a crashed proxy returns HTML. All three
+ * document-service returns the envelope already; ai-service returns the same
+ * fields under `title` rather than `error`; FastAPI's own validation and
+ * `HTTPException` return `{detail}`; a crashed proxy returns HTML. All four
  * have to arrive at the UI as something a user can read.
  */
 async function readError(response: Response, base: string): Promise<ErrorEnvelope> {
@@ -158,6 +168,17 @@ async function readError(response: Response, base: string): Promise<ErrorEnvelop
     if (typeof p.error === "string" && typeof p.detail === "string") {
       return {
         error: p.error,
+        detail: p.detail,
+        code: typeof p.code === "string" ? p.code : fallbackCode,
+        retryable: typeof p.retryable === "boolean" ? p.retryable : response.status >= 500,
+      };
+    }
+    // ai-service's envelope: same fields, `title` where document-service says
+    // `error`. Forwarding it keeps the service's own wording and error code
+    // instead of flattening it to a generic "Service error".
+    if (typeof p.title === "string" && typeof p.detail === "string") {
+      return {
+        error: p.title,
         detail: p.detail,
         code: typeof p.code === "string" ? p.code : fallbackCode,
         retryable: typeof p.retryable === "boolean" ? p.retryable : response.status >= 500,
