@@ -84,16 +84,21 @@ jobs:
       - name: Build and scan each service image
         if: steps.imgs.outputs.none == 'false'
         run: |
+          df -h /
           for d in ${{ steps.imgs.outputs.list }}; do
+            img="documind/$(basename "$d"):ci"
             echo "::group::Building $d"
-            docker build -t "documind/$(basename "$d"):ci" "$d"
+            docker build -t "$img" "$d"
             echo "::endgroup::"
             echo "::group::Trivy scan $d"
-            trivy image --exit-code 0 --severity HIGH,CRITICAL "documind/$(basename "$d"):ci"
+            trivy image --exit-code 0 --severity HIGH,CRITICAL "$img"
             # M4: switch to --exit-code 1 to hard-fail on HIGH/CRITICAL
             echo "::endgroup::"
+            # runner has ~14GB; three service images no longer fit at once
+            docker rmi -f "$img" || true
+            docker builder prune -af || true
+            df -h /
           done
-
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
