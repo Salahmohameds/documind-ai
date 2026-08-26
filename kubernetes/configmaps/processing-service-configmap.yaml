@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: processing-service-config
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+data:
+  # --- Application ---------------------------------------------------------
+  PORT: "8080"
+  SERVICE_NAME: "processing-service"
+  LOG_LEVEL: "INFO"
+
+  # --- Redis Streams -------------------------------------------------------
+  # REDIS_URL lives in the Secret: it carries credentials in the cluster.
+  # This name must match document-service's REDIS_STREAM_NAME — the producer
+  # and consumer agree on the stream by name and nothing else.
+  REDIS_STREAM_NAME: "document_jobs"
+  REDIS_CONSUMER_GROUP: "processing-workers"
+  REDIS_DEAD_LETTER_STREAM: "document_jobs_dead"
+  READ_BLOCK_MS: "5000"
+  READ_BATCH_SIZE: "10"
+
+  # --- Reliability ---------------------------------------------------------
+  MAX_ATTEMPTS: "3"
+  # Above JOB_TIMEOUT_S, so a worker that is still legitimately working does
+  # not have its job stolen out from under it.
+  RECLAIM_MIN_IDLE_MS: "300000"
+  RECLAIM_INTERVAL_S: "30"
+  CONCURRENCY: "4"
+  JOB_TIMEOUT_S: "180"
+  # Must stay below the Deployment's terminationGracePeriodSeconds (60), or
+  # the kubelet SIGKILLs the pod mid-drain and the bound means nothing.
+  GRACEFUL_SHUTDOWN_S: "30"
+
+  # --- Object storage ------------------------------------------------------
+  # 'oci', not 'local': a block volume is ReadWriteOnce, so a second replica
+  # could not mount it. Object Storage is what makes replicas > 1 possible.
+  STORAGE_TYPE: "oci"
+  # Authentication is OKE workload identity — the pod's service account maps to
+  # an IAM dynamic group. No credential is mounted anywhere.
+  OCI_AUTH_MODE: "workload"
+  OCI_BUCKET_NAME: "dm-documents"
+  # Filled in by role 2 at deploy time from the Terraform outputs.
+  OCI_NAMESPACE: ""
+  OCI_REGION: ""
+
+  # --- Downstream services -------------------------------------------------
+  AI_SERVICE_URL: "http://ai-service.documind.svc.cluster.local:8080"
+  AI_SERVICE_TIMEOUT_S: "60"
+  SEARCH_SERVICE_URL: "http://search-service.documind.svc.cluster.local:8080"
+  SEARCH_SERVICE_TIMEOUT_S: "30"
+
+  # --- Resilience ----------------------------------------------------------
+  MAX_RETRIES: "3"
+  RETRY_BASE_DELAY_S: "0.5"
+  CIRCUIT_BREAKER_THRESHOLD: "5"
+  CIRCUIT_BREAKER_RESET_S: "30"
+
+  # --- Tracing -------------------------------------------------------------
+  OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector.monitoring.svc.cluster.local:4317"

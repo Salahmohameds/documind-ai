@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: documind
+  labels:
+    app.kubernetes.io/name: documind
+    app.kubernetes.io/part-of: documind
+    # Enforce the restricted Pod Security Standard at admission. Every service
+    # image already runs as a non-root uid with capabilities dropped, so this
+    # turns those properties from a convention into a rule the API server keeps.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

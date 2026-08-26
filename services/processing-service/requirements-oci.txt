@@ -1,0 +1,4 @@
+# Installed only when STORAGE_TYPE=oci, via `--build-arg INSTALL_OCI=true`.
+# Kept out of requirements.txt so the default image stays small and the test
+# suite runs with no OCI dependency at all — the same split ai-service uses.
+oci>=2.126.0

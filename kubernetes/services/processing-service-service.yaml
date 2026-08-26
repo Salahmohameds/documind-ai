@@ -1,0 +1,22 @@
+# ClusterIP for probes and Prometheus scraping only.
+#
+# The worker serves no application traffic — it pulls jobs from Redis. Nothing
+# routes user requests here, and the NetworkPolicy allows ingress only from the
+# monitoring namespace.
+apiVersion: v1
+kind: Service
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: processing-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

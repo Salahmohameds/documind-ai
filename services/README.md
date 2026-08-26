@@ -48,6 +48,6 @@ cd services/<name>
 |---------|---------------|
 | api-gateway | `POST /auth/login`, proxy `/*` |
 | document-service | `POST /documents`, `GET /documents/{id}`, `GET /documents/{id}/status` |
-| processing-service | queue consumer; `/liveness`, `/readiness` |
+| processing-service | queue consumer (Redis stream `document_jobs`); `/liveness`, `/readiness`, `/metrics` |
 | ai-service | `POST /analysis/risk`, `POST /summarize` |
 | search-service | `POST /index`, `POST /query`, `GET /search` |

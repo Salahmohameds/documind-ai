@@ -1,0 +1,19 @@
+# Keeps at least one consumer on the stream during a voluntary disruption
+# (node drain, cluster upgrade). Without it, draining a node can evict every
+# worker at once and the queue stops being consumed until pods reschedule.
+#
+# Jobs are not lost either way — un-acked messages are reclaimed — but the
+# backlog and the latency spike are avoidable.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: processing-service
