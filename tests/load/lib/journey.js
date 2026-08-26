@@ -77,16 +77,16 @@ export function upload(pdfFile, filename) {
 
   const ok = check(res, {
     "upload 202": (r) => r.status === 202,
-    "upload returns document_id": (r) => {
+    "upload returns id": (r) => {
       try {
-        return typeof r.json("document_id") === "string";
+        return typeof r.json("id") === "string";
       } catch (e) {
         return false;
       }
     },
   });
 
-  return ok ? res.json("document_id") : null;
+  return ok ? res.json("id") : null;
 }
 
 // Polls until the document reaches a terminal state.
@@ -109,8 +109,8 @@ export function waitForProcessing(documentId) {
     });
 
     if (res.status === 200) {
-      const status = res.json("status");
-      if (status === "COMPLETED") {
+      const status = String(res.json("status") || "").toLowerCase();
+      if (status === "completed") {
         processingDuration.add(Date.now() - started);
         return true;
       }
