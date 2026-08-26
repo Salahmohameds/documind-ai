@@ -15,6 +15,7 @@ class BaseEmbedder:
 
 
 class MockEmbedder(BaseEmbedder):
+   
 
     def __init__(self, dim: int = None):
         self.dim = dim or Config.EMBEDDING_DIM
@@ -36,7 +37,6 @@ class MockEmbedder(BaseEmbedder):
 
 
 class LocalSentenceTransformerEmbedder(BaseEmbedder):
-    """Real embeddings via sentence-transformers. Requires internet on first run."""
 
     def __init__(self, model_name: str = None):
         from sentence_transformers import SentenceTransformer  # lazy import
@@ -52,30 +52,76 @@ class LocalSentenceTransformerEmbedder(BaseEmbedder):
         return self.model.encode(texts).tolist()
 
 
-class OCIGenerativeAIEmbedder(BaseEmbedder):
-  
-    def __init__(self, model_name: str = None):
-        self.model_name = model_name or Config.EMBEDDING_MODEL
-        self.dim = Config.EMBEDDING_DIM
-        # TODO: initialize OCI Generative AI client here (auth via OCI IAM,
-        # not API keys, per the project's architecture decisions)
+class AIServiceEmbedder(BaseEmbedder):
+
+    def __init__(self, base_url: str = None, timeout: float = None, max_batch: int = None):
+        self.base_url = (base_url or Config.AI_SERVICE_URL).rstrip("/")
+        self.timeout = timeout or Config.AI_SERVICE_TIMEOUT
+        self.max_batch = max_batch or Config.AI_SERVICE_MAX_EMBED_BATCH
+        self.dim = Config.EMBEDDING_DIM  # sanity-checked against server response below
+
+    def _headers(self, request_id: str = None) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if request_id:
+            headers["X-Request-ID"] = request_id
+        if Config.AI_SERVICE_AUTH_TOKEN:
+            headers["Authorization"] = f"Bearer {Config.AI_SERVICE_AUTH_TOKEN}"
+        return headers
+
+    def _call_embed(self, texts: List[str], input_type: str) -> List[List[float]]:
+        import requests
+
+        resp = requests.post(
+            f"{self.base_url}/embed",
+            json={"texts": texts, "input_type": input_type},
+            headers=self._headers(),
+            timeout=self.timeout,
+        )
+
+        if resp.status_code != 200:
+            try:
+                body = resp.json()
+            except ValueError:
+                body = resp.text
+            raise RuntimeError(
+                f"ai-service /embed failed: HTTP {resp.status_code} - {body}"
+            )
+
+        data = resp.json()
+        server_dim = data.get("dim")
+        if server_dim and server_dim != self.dim:
+            raise RuntimeError(
+                f"Embedding dimension mismatch: ai-service returned dim={server_dim}, "
+                f"but EMBEDDING_DIM={self.dim} (search-service config / schema.sql). "
+                f"A schema migration is required before switching backends - "
+                f"see database/migrations/002_update_embedding_dim.sql template."
+            )
+
+        return data["embeddings"]
 
     def embed(self, text: str) -> List[float]:
-        raise NotImplementedError(
-            "OCI Generative AI embedding call not yet wired up. "
-            "Coordinate with the AI Engineer for the client/config, then "
-            "implement this method - the interface is already correct."
-        )
+        # Single text at query time -> input_type "query"
+        return self._call_embed([text], input_type="query")[0]
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        # Documents at index time -> input_type "document", chunked to
+        # respect ai-service's MAX_EMBED_BATCH.
+        results: List[List[float]] = []
+        for i in range(0, len(texts), self.max_batch):
+            batch = texts[i : i + self.max_batch]
+            results.extend(self._call_embed(batch, input_type="document"))
+        return results
+
+OCIGenerativeAIEmbedder = AIServiceEmbedder
 
 
 def get_embedder() -> BaseEmbedder:
-    """Factory: returns the embedder configured via EMBEDDING_BACKEND."""
     backend = Config.EMBEDDING_BACKEND
     if backend == "mock":
         return MockEmbedder()
     elif backend == "local_st":
         return LocalSentenceTransformerEmbedder()
-    elif backend == "oci":
-        return OCIGenerativeAIEmbedder()
+    elif backend in ("ai_service", "oci"):  # "oci" kept as legacy alias
+        return AIServiceEmbedder()
     else:
         raise ValueError(f"Unknown EMBEDDING_BACKEND: {backend}")
