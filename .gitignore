@@ -88,3 +88,6 @@ tests/fixtures/ground-truth/
 services/search-service/local_vector_store.json
 # document-service's local storage backend when STORAGE_TYPE=local.
 .local-storage/
+
+# Load test output
+tests/load/results/
