@@ -54,7 +54,7 @@ jobs:
         with:
           directory: terraform/
           framework: terraform
-          soft_fail: true   # tighten to hard fail after baseline hardening (M4)
+          soft_fail: true # tighten to hard fail after baseline hardening (M4)
 
   services-build-scan:
     name: Docker build + Trivy scan
@@ -108,41 +108,41 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    python-tests:
-    name: Python unit tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Discover services with tests
-        id: svc
-        run: |
-          mapfile -t dirs < <(find services -maxdepth 2 -type d -name tests -printf '%h\n' 2>/dev/null | sort)
-          if [ "${#dirs[@]}" -eq 0 ]; then
-            echo "none=true" >> "$GITHUB_OUTPUT"
-            echo "No service test suites yet — skipping."
-          else
-            echo "none=false" >> "$GITHUB_OUTPUT"
-            echo "list=${dirs[*]}" >> "$GITHUB_OUTPUT"
+  python-tests:
+  name: Python unit tests
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Discover services with tests
+      id: svc
+      run: |
+        mapfile -t dirs < <(find services -maxdepth 2 -type d -name tests -printf '%h\n' 2>/dev/null | sort)
+        if [ "${#dirs[@]}" -eq 0 ]; then
+          echo "none=true" >> "$GITHUB_OUTPUT"
+          echo "No service test suites yet — skipping."
+        else
+          echo "none=false" >> "$GITHUB_OUTPUT"
+          echo "list=${dirs[*]}" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Run pytest per service
+      if: steps.svc.outputs.none == 'false'
+      run: |
+        failed=0
+        for d in ${{ steps.svc.outputs.list }}; do
+          echo "::group::pytest $d"
+          python -m venv "/tmp/venv-$(basename "$d")"
+          # shellcheck disable=SC1090
+          source "/tmp/venv-$(basename "$d")/bin/activate"
+          pip install --quiet --upgrade pip
+          if [ -f "$d/requirements.txt" ]; then
+            pip install --quiet -r "$d/requirements.txt"
           fi
-      - name: Run pytest per service
-        if: steps.svc.outputs.none == 'false'
-        run: |
-          failed=0
-          for d in ${{ steps.svc.outputs.list }}; do
-            echo "::group::pytest $d"
-            python -m venv "/tmp/venv-$(basename "$d")"
-            # shellcheck disable=SC1090
-            source "/tmp/venv-$(basename "$d")/bin/activate"
-            pip install --quiet --upgrade pip
-            if [ -f "$d/requirements.txt" ]; then
-              pip install --quiet -r "$d/requirements.txt"
-            fi
-            pip install --quiet pytest
-            ( cd "$d" && python -m pytest tests -q ) || failed=1
-            deactivate
-            echo "::endgroup::"
-          done
-          exit "$failed"
+          pip install --quiet pytest
+          ( cd "$d" && python -m pytest tests -q ) || failed=1
+          deactivate
+          echo "::endgroup::"
+        done
+        exit "$failed"
