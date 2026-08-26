@@ -91,3 +91,6 @@ services/search-service/local_vector_store.json
 
 # Load test output
 tests/load/results/
+
+# Local upload storage — generated when running document-service locally
+services/*/storage/
