@@ -1,0 +1,42 @@
+[
+  {
+    "id": "u1",
+    "question": "Who won the FIFA World Cup in 1998?",
+    "why_unanswerable": "General knowledge, entirely outside the corpus."
+  },
+  {
+    "id": "u2",
+    "question": "What is the Provider's employee headcount?",
+    "why_unanswerable": "Plausible business question about a party named in the contract, but the figure appears nowhere in the documents."
+  },
+  {
+    "id": "u3",
+    "question": "What penalty applies if the Provider misses a delivery milestone?",
+    "why_unanswerable": "The contract has no liquidated-damages or milestone-penalty clause. A model that pattern-matches on 'penalty' will be tempted to invent one."
+  },
+  {
+    "id": "u4",
+    "question": "Which court has exclusive jurisdiction over disputes under this agreement?",
+    "why_unanswerable": "Section 8 defers to Exhibit C, which is not part of the corpus. The honest answer is that the documents do not say."
+  },
+  {
+    "id": "u5",
+    "question": "What was the total amount of invoice INV-1023?",
+    "why_unanswerable": "Only INV-1024 exists. Tests whether a near-miss identifier pulls the wrong document's total."
+  },
+  {
+    "id": "u6",
+    "question": "How many days of paid annual leave does the agreement grant?",
+    "why_unanswerable": "An employment-contract question asked of a services agreement."
+  },
+  {
+    "id": "u7",
+    "question": "What is the Provider's bank account number for the remittance?",
+    "why_unanswerable": "The invoice refers to attached remittance details that are not present. Also checks that PII handling does not fabricate an account number."
+  },
+  {
+    "id": "u8",
+    "question": "Does the agreement permit subcontracting to third parties?",
+    "why_unanswerable": "No assignment or subcontracting clause exists. Silence is not permission, and the service should say the documents do not address it."
+  }
+]
