@@ -18,6 +18,8 @@ from app.errors import (
 from app.models import Document
 from app.repositories.documents import DocumentRepository
 from app.schemas import (
+    BulkFailedItemSchema,
+    BulkResultSchema,
     DocErrorSchema,
     DocumentDetailSchema,
     DocumentPageSchema,
@@ -100,6 +102,86 @@ class DocumentService:
             page=page,
             pageSize=page_size,
             pageCount=max(1, ceil(total / page_size)),
+        )
+
+    def bulk_delete(self, ids: list[str]) -> BulkResultSchema:
+        """Delete documents by IDs.  Non-existent IDs are reported as failed."""
+        succeeded: list[str] = []
+        failed: list[BulkFailedItemSchema] = []
+
+        for doc_id in ids:
+            document = self._repository.get(doc_id)
+            if document is None:
+                failed.append(
+                    BulkFailedItemSchema(
+                        id=doc_id, name="unknown", reason="Document not found"
+                    )
+                )
+                continue
+
+            name = document.filename
+            storage_key = f"documents/{doc_id}.pdf"
+            self._repository.delete(doc_id)
+            self._storage.delete(storage_key)
+            succeeded.append(doc_id)
+
+        return BulkResultSchema(
+            requested=len(ids), succeeded=succeeded, failed=failed
+        )
+
+    def bulk_reprocess(self, ids: list[str]) -> BulkResultSchema:
+        """Reset documents to *queued* and republish processing jobs.
+
+        Uses the **exact same** Redis event payload as the upload flow so
+        downstream consumers (search-service, ai-service) treat reprocessed
+        documents identically to freshly uploaded ones.
+        """
+        succeeded: list[str] = []
+        failed: list[BulkFailedItemSchema] = []
+
+        for doc_id in ids:
+            document = self._repository.reset_to_queued(doc_id)
+            if document is None:
+                failed.append(
+                    BulkFailedItemSchema(
+                        id=doc_id, name="unknown", reason="Document not found"
+                    )
+                )
+                continue
+
+            storage_key = f"documents/{doc_id}.pdf"
+            size_bytes = self._storage.size_bytes(storage_key) or 0
+            uploaded_at = document.uploaded_at
+            if uploaded_at.tzinfo is None:
+                uploaded_at = uploaded_at.replace(tzinfo=UTC)
+
+            try:
+                self._publisher.publish_document(
+                    {
+                        "event_version": "1",
+                        "document_id": doc_id,
+                        "storage_key": storage_key,
+                        "filename": document.filename,
+                        "content_type": "application/pdf",
+                        "size_bytes": str(size_bytes),
+                        "uploaded_at": uploaded_at.isoformat(),
+                    }
+                )
+            except RedisError:
+                self._repository.mark_failed(doc_id)
+                failed.append(
+                    BulkFailedItemSchema(
+                        id=doc_id,
+                        name=document.filename,
+                        reason="Failed to enqueue processing job",
+                    )
+                )
+                continue
+
+            succeeded.append(doc_id)
+
+        return BulkResultSchema(
+            requested=len(ids), succeeded=succeeded, failed=failed
         )
 
     def _get_or_raise(self, document_id: str) -> Document:

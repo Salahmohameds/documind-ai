@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from app.dependencies import get_document_service
 from app.errors import DocumentServiceError
 from app.schemas import (
+    BulkRequestSchema,
+    BulkResultSchema,
     DocumentDetailSchema,
     DocumentPageSchema,
     DocumentStatusSchema,
@@ -70,3 +72,20 @@ def get_document(
         return service.get(document_id)
     except DocumentServiceError as error:
         return _error_response(error)
+
+
+@router.delete("", response_model=BulkResultSchema)
+def bulk_delete_documents(
+    body: BulkRequestSchema,
+    service: DocumentService = Depends(get_document_service),
+):
+    return service.bulk_delete(body.ids)
+
+
+@router.post("/reprocess", response_model=BulkResultSchema)
+def bulk_reprocess_documents(
+    body: BulkRequestSchema,
+    service: DocumentService = Depends(get_document_service),
+):
+    return service.bulk_reprocess(body.ids)
+

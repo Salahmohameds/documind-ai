@@ -25,11 +25,11 @@ RUN chown -R appuser:appuser /app
 USER appuser
 
 ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=8000
+EXPOSE 8000
 
 # Container-level health check (supplements K8s probes)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/liveness')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/liveness')" || exit 1
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

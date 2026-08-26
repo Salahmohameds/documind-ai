@@ -69,6 +69,30 @@ class DocumentRepository:
         document.status = self._TO_DATABASE_STATUS["failed"]
         self._db.commit()
 
+    def delete(self, document_id: str) -> bool:
+        """Delete a document by ID.  Returns ``True`` if the row existed."""
+        document = self.get(document_id)
+        if document is None:
+            return False
+        self._db.delete(document)
+        self._db.commit()
+        return True
+
+    def reset_to_queued(self, document_id: str) -> Document | None:
+        """Reset a document's status to *queued* for reprocessing.
+
+        Clears ``indexed_at`` so downstream consumers treat this as a fresh
+        job.  Returns the updated ``Document``, or ``None`` if not found.
+        """
+        document = self.get(document_id)
+        if document is None:
+            return None
+        document.status = self._TO_DATABASE_STATUS["queued"]
+        document.indexed_at = None
+        self._db.commit()
+        self._db.refresh(document)
+        return document
+
     @classmethod
     def api_status(cls, database_status: str) -> str:
         return cls._FROM_DATABASE_STATUS.get(database_status, "failed")
