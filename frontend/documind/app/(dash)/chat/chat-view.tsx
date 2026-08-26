@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { askWorkspace, scopeSize, type Simulate } from "@/lib/api";
+import { askWorkspace, scopeSize } from "@/lib/api";
+import { useAsync } from "@/lib/use-async";
 import { CHAT_SCOPES, CHAT_SUGGESTIONS } from "@/lib/mock/data";
 import type { ChatScope } from "@/lib/types";
 import {
@@ -15,7 +16,7 @@ import {
   useChatEngine,
   type Cite,
 } from "@/components/documind/chat";
-import { EmptyPanel, StateSwitcher } from "@/components/documind/feedback";
+import { EmptyPanel } from "@/components/documind/feedback";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,27 +27,27 @@ import { CaretDownIcon, ChatIcon, FileIcon, SearchIcon } from "@/components/ui/i
 import { Button } from "@/components/ui/button";
 import { Anim } from "@/components/motion";
 
-const SIMULATIONS = [
-  { value: "ok" as const, label: "Default" },
-  { value: "slow" as const, label: "Slow" },
-  { value: "error" as const, label: "Error" },
-];
-
 const SCOPE_LABEL: Record<ChatScope, string> = {
   All: "All documents",
   Contract: "Contracts",
   Amendment: "Amendments",
   Invoice: "Invoices",
   Statement: "Statements",
+  // Every upload lands here until a classifier runs, so it is a scope users
+  // will actually pick from — not a leftover.
+  Unknown: "Unclassified",
 };
 
 export function ChatView() {
-  const [simulate, setSimulate] = useState<Simulate>("ok");
   const [scope, setScope] = useState<ChatScope>("All");
   const [draft, setDraft] = useState("");
   const [openCite, setOpenCite] = useState<string | null>(null);
 
-  const inScope = scopeSize(scope);
+  // The count is a real query against the library, so it is loaded rather
+  // than read synchronously; 0 until it arrives, which reads correctly as
+  // "nothing to search yet".
+  const scopeCount = useAsync((signal) => scopeSize(scope, signal), [scope]);
+  const inScope = scopeCount.data ?? 0;
 
   const chat = useChatEngine({
     thinkingLabel: () =>
@@ -57,7 +58,7 @@ export function ChatView() {
         ? "Nothing in the indexed corpus answers that. Answers here are grounded in your documents only — if the information lives in an email or a system of record, it will not be found here."
         : `Nothing in ${SCOPE_LABEL[scope].toLowerCase()} answers that. Widen the scope to all documents and ask again.`,
     ask: async (question) => {
-      const answer = await askWorkspace(question, scope, { simulate });
+      const answer = await askWorkspace(question, scope);
       if (!answer) return null;
       return {
         text: answer.text,
@@ -225,8 +226,6 @@ export function ChatView() {
           hint={`Grounded in ${inScope} indexed document${inScope === 1 ? "" : "s"} · ⏎ to send · answers cite their source page`}
         />
       </ChatPanel>
-
-      <StateSwitcher value={simulate} options={SIMULATIONS} onChange={setSimulate} />
     </ChatPage>
   );
 }

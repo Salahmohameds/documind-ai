@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { getDocument, reprocessDocuments, tickProcessing, type Simulate } from "@/lib/api";
+import { getDocument, getDocumentStatus, reprocessDocuments } from "@/lib/api";
 import { useAction, useAsync } from "@/lib/use-async";
 import { PIPELINE_STEPS } from "@/lib/mock/data";
 import { confidenceTone, riskTone, v } from "@/lib/design";
@@ -13,7 +13,6 @@ import {
   ErrorPanel,
   InlineError,
   Spinner,
-  StateSwitcher,
   Toaster,
   useToasts,
 } from "@/components/documind/feedback";
@@ -27,12 +26,6 @@ import {
 } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Anim, Shimmer, Stagger } from "@/components/motion";
-
-const SIMULATIONS = [
-  { value: "ok" as const, label: "Default" },
-  { value: "slow" as const, label: "Slow" },
-  { value: "error" as const, label: "Error" },
-];
 
 const SEVERITY_TONE: Record<string, Tone> = { High: "--bad", Medium: "--warn", Low: "--ok" };
 
@@ -55,26 +48,45 @@ const panel: CSSProperties = {
 };
 
 export function DocumentDetailView({ id }: { id: string }) {
-  const [simulate, setSimulate] = useState<Simulate>("ok");
   const [confirmReprocess, setConfirmReprocess] = useState(false);
   const { toasts, push, update, dismiss } = useToasts();
 
-  const doc = useAsync((signal) => getDocument(id, { simulate, signal }), [id, simulate]);
+  const doc = useAsync((signal) => getDocument(id, { signal }), [id]);
   const reprocess = useAction(reprocessDocuments);
 
   const detail = doc.data;
-  const processing = detail?.status === "processing";
 
-  // Keep a processing document moving while the page is open.
+  // While the document is in the pipeline, poll the cheap status endpoint
+  // rather than re-fetching the whole analysis payload every two seconds. Only
+  // when the lifecycle state actually changes is the full document re-read,
+  // because that is the only moment new analysis can have appeared.
+  const inPipeline = detail?.status === "processing" || detail?.status === "queued";
   const reloadDoc = doc.reload;
+  const setDoc = doc.setData;
   useEffect(() => {
-    if (!processing || simulate !== "ok") return;
-    const t = setInterval(() => {
-      tickProcessing();
-      reloadDoc();
-    }, 1800);
-    return () => clearInterval(t);
-  }, [processing, simulate, reloadDoc]);
+    if (!inPipeline) return;
+
+    const controller = new AbortController();
+    const t = setInterval(async () => {
+      try {
+        const next = await getDocumentStatus(id, controller.signal);
+        setDoc((prev) =>
+          prev.status === next.status
+            ? { ...prev, progress: next.progress ?? undefined }
+            : prev,
+        );
+        if (next.status !== "processing" && next.status !== "queued") reloadDoc();
+      } catch {
+        // A failed poll is not worth surfacing — the next tick retries, and
+        // the document on screen is still the last good read.
+      }
+    }, 2500);
+
+    return () => {
+      controller.abort();
+      clearInterval(t);
+    };
+  }, [id, inPipeline, reloadDoc, setDoc]);
 
   async function runReprocess() {
     setConfirmReprocess(false);
@@ -100,7 +112,7 @@ export function DocumentDetailView({ id }: { id: string }) {
         gap: 18,
       }}
     >
-      {doc.status === "loading" && <DetailSkeleton slow={simulate === "slow"} />}
+      {doc.status === "loading" && <DetailSkeleton />}
 
       {doc.status === "error" && doc.error && (
         <ErrorPanel
@@ -170,9 +182,13 @@ export function DocumentDetailView({ id }: { id: string }) {
                     `${detail.pages} pages`,
                     `${detail.sizeMb.toFixed(1)} MB`,
                     `Uploaded ${detail.uploaded}`,
-                    detail.status === "completed" ? `Processed in ${detail.processedIn}` : detail.counterparty,
-                    `model ${detail.model}`,
-                  ].map((meta, i) => (
+                    detail.status === "completed" && detail.processedIn
+                      ? `Processed in ${detail.processedIn}`
+                      : detail.counterparty,
+                    detail.model ? `model ${detail.model}` : null,
+                  ]
+                    .filter((meta): meta is string => meta !== null)
+                    .map((meta, i) => (
                     <span key={meta} style={{ display: "contents" }}>
                       {i > 0 && <span style={{ width: 1, height: 10, background: "var(--border)" }} />}
                       <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
@@ -364,7 +380,6 @@ export function DocumentDetailView({ id }: { id: string }) {
       />
 
       <Toaster toasts={toasts} onDismiss={dismiss} />
-      <StateSwitcher value={simulate} options={SIMULATIONS} onChange={setSimulate} />
     </div>
   );
 }
@@ -434,28 +449,44 @@ function SummaryStrip({ detail }: { detail: DocumentDetail }) {
       }}
     >
       <SummaryCell label="Classification">
-        <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-          <span className="mono" style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-.01em", color: "var(--text)" }}>
-            {c.label}
+        {/* A completed document can still lack a classification: the classifier
+            is part of the analysis pipeline, and saying so is better than
+            showing a confident-looking label the service never produced. */}
+        {!c ? (
+          <>
+            <span className="mono" style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-.01em", color: "var(--text-3)" }}>
+              {detail.type === "Unknown" ? "Not classified" : detail.type.toUpperCase()}
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+              No classifier output for this document.
+            </span>
+          </>
+        ) : (
+          <>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+            <span className="mono" style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-.01em", color: "var(--text)" }}>
+              {c.label}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 500,
+                color: "var(--text-2)",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 999,
+                padding: "3px 8px",
+              }}
+            >
+              {c.subtype}
+            </span>
+          </div>
+          <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+            {c.confidence}% confidence · next best {c.runnerUp} ({c.runnerUpConfidence}%)
           </span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              color: "var(--text-2)",
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 999,
-              padding: "3px 8px",
-            }}
-          >
-            {c.subtype}
-          </span>
-        </div>
-        <span style={{ fontSize: 11, color: "var(--text-3)" }}>
-          {c.confidence}% confidence · next best {c.runnerUp} ({c.runnerUpConfidence}%)
-        </span>
-        <Meter pct={c.confidence} color={v(confidenceTone(c.confidence))} />
+          <Meter pct={c.confidence} color={v(confidenceTone(c.confidence))} />
+          </>
+        )}
       </SummaryCell>
 
       <SummaryCell label="Extracted fields" divider>
@@ -983,7 +1014,7 @@ function Meter({ pct, color }: { pct: number; color: string }) {
   );
 }
 
-function DetailSkeleton({ slow }: { slow: boolean }) {
+function DetailSkeleton() {
   return (
     <>
       <div style={{ ...panel, borderRadius: 18, gap: 0 }}>
@@ -1033,7 +1064,7 @@ function DetailSkeleton({ slow }: { slow: boolean }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", paddingTop: 4 }}>
         <Spinner size={12} />
         <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-          {slow ? "Still fetching the analysis — this one is slow…" : "Loading document analysis…"}
+          Loading document analysis…
         </span>
       </div>
     </>

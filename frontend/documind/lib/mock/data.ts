@@ -1,7 +1,6 @@
 import type {
   ChatScope,
   Citation,
-  Dashboard,
   DateRange,
   DocError,
   DocType,
@@ -43,9 +42,14 @@ export const PIPELINE_STEPS = [
   "Complete",
 ] as const;
 
+/**
+ * What document-service actually accepts: PDF only (it checks for the `%PDF-`
+ * header), 25 MB per file. These are mirrored rather than guessed so the UI
+ * rejects an impossible file before uploading it instead of after.
+ */
 export const UPLOAD_LIMITS = {
-  extensions: ["pdf", "docx", "tiff", "png"],
-  maxMb: 200,
+  extensions: ["pdf"],
+  maxMb: 25,
   maxBatch: 50,
 };
 
@@ -317,87 +321,24 @@ export function buildDetail(doc: DocumentSummary): DocumentDetail {
 
 /* -- Dashboard ---------------------------------------------------------- */
 
-const RANGE_FACTOR: Record<DateRange, number> = { "7d": 0.28, "30d": 1, "90d": 2.8 };
-
 export const RANGE_LABEL: Record<DateRange, string> = {
   "7d": "Last 7 days",
   "30d": "Last 30 days",
   "90d": "Last 90 days",
 };
 
-export const RANGE_DATES: Record<DateRange, string> = {
-  "7d": "Aug 19 — Aug 25, 2026",
-  "30d": "Jul 27 — Aug 25, 2026",
-  "90d": "May 28 — Aug 25, 2026",
-};
-
-export function buildDashboard(range: DateRange): Dashboard {
-  const f = RANGE_FACTOR[range];
-  const n = (x: number) => Math.round(x * f);
-
-  return {
-    kpis: [
-      { key: "processed", label: "Documents processed", value: n(1247).toLocaleString(), delta: "12%", direction: "up", deltaTone: "--ok", icon: "bars", iconTone: "--accent", footnote: `vs. ${n(1113).toLocaleString()} previous period` },
-      { key: "exceptions", label: "Exceptions detected", value: n(89).toLocaleString(), delta: "4%", direction: "up", deltaTone: "--warn", icon: "warning", iconTone: "--warn", footnote: `vs. ${n(86)} previous period` },
-      { key: "high", label: "High risk documents", value: String(n(12)), delta: "2", direction: "down", deltaTone: "--ok", icon: "shield", iconTone: "--bad", footnote: `risk ≥ 67 · ${n(14)} previous period` },
-      { key: "review", label: "Avg review time", value: range === "7d" ? "2.1" : range === "30d" ? "2.4" : "3.0", unit: " min", delta: "18%", direction: "down", deltaTone: "--ok", icon: "clock", iconTone: "--ok", footnote: "vs. 2.9 min previous period" },
-    ],
-    flagged: DOCUMENTS.filter((d) => d.verdict === "Needs review" || d.status === "failed" || d.status === "processing").slice(0, 6),
-    exceptions: [
-      ["Incomplete counterparty", 84],
-      ["Unmatched line items", 71],
-      ["Missing signature block", 63],
-      ["Tax ID invalid", 48],
-      ["PII in free text", 39],
-      ["Metadata tampered", 22],
-    ],
-    gauge: {
-      pct: range === "7d" ? 68 : range === "30d" ? 61 : 57,
-      target: range === "7d" ? "Ahead of the 70% target" : "On track for 70% target",
-      legend: [
-        { label: "Low", value: n(761), tone: "--ok" },
-        { label: "Elevated", value: n(287), tone: "--warn" },
-        { label: "High", value: n(199), tone: "--bad" },
-      ],
-    },
-    seriesSeed: range === "7d" ? 7 : range === "30d" ? 0 : 31,
-    generatedAt: "Aug 25, 10:04",
-  };
-}
-
-export const EMPTY_DASHBOARD: Dashboard = {
-  kpis: buildDashboard("30d").kpis.map((k) => ({
-    ...k,
-    value: "0",
-    unit: undefined,
-    delta: "0%",
-    footnote: "no documents in this period",
-  })),
-  flagged: [],
-  exceptions: [],
-  gauge: {
-    pct: 0,
-    target: "No documents scored yet",
-    legend: [
-      { label: "Low", value: 0, tone: "--ok" },
-      { label: "Elevated", value: 0, tone: "--warn" },
-      { label: "High", value: 0, tone: "--bad" },
-    ],
-  },
-  seriesSeed: -1,
-  generatedAt: "—",
-};
-
-/** A dashboard where one panel failed to compute — the partial-success case. */
-export function degradedDashboard(range: DateRange): Dashboard {
-  return {
-    ...buildDashboard(range),
-    exceptions: [],
-    degraded: {
-      panel: "Top exception types",
-      message: "The exception aggregator timed out. Every other panel is current as of Aug 25, 10:04.",
-    },
-  };
+/**
+ * The calendar window a range covers, computed from today rather than frozen
+ * to a fixture date — the dashboard beneath it counts real uploads, so its
+ * caption has to describe the same days.
+ */
+export function rangeDates(range: DateRange): string {
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-GB", { month: "short", day: "numeric" });
+  const end = new Date();
+  const start = new Date(end.getTime() - (days - 1) * 86_400_000);
+  return `${fmt(start)} — ${fmt(end)}, ${end.getFullYear()}`;
 }
 
 /* -- Q&A ---------------------------------------------------------------- */
@@ -537,7 +478,7 @@ export const CHAT_SUGGESTIONS = [
   "Which invoices need review and why?",
 ];
 
-export const CHAT_SCOPES: ChatScope[] = ["All", "Contract", "Amendment", "Invoice", "Statement"];
+export const CHAT_SCOPES: ChatScope[] = ["All", "Contract", "Amendment", "Invoice", "Statement", "Unknown"];
 
 export const CHAT_ANSWERS: WorkspaceAnswer[] = [
   {

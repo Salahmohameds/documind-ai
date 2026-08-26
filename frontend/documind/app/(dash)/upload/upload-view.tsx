@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import {
-  classifyByName,
-  commitUpload,
-  pipelineOutcome,
+  ApiError,
+  getDocumentStatus,
+  uploadDocument,
   validateFile,
 } from "@/lib/api";
 import { PIPELINE_STEPS, UPLOAD_LIMITS, WORKSPACE } from "@/lib/mock/data";
+import { useHealth } from "@/lib/use-health";
 import type { UploadJob } from "@/lib/types";
 import { PipelineTrack } from "@/components/documind/pipeline";
 import { ConfirmDialog, EmptyPanel, InlineError, Spinner, Toaster, useToasts } from "@/components/documind/feedback";
@@ -16,12 +17,12 @@ import { CloudUploadIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Anim, AnimatePresence, GrowBar, Sweep } from "@/components/motion";
 
-const TICK_MS = 160;
-const SAMPLE_FILES: [string, number][] = [
-  ["ACME_Q3_MSA_countersigned.pdf", 4.2],
-  ["INV-2026-04418_Northwind.pdf", 1.8],
-  ["Vendor_NDA_Kestrel_v5.pdf", 12.4],
-];
+/** How often the elapsed clock and the pipeline poll advance. */
+const CLOCK_MS = 250;
+const POLL_MS = 2500;
+
+/** Concurrent uploads. Two keeps a slow file from stalling the whole batch. */
+const MAX_CONCURRENT = 2;
 
 const dropzoneBase: CSSProperties = {
   minHeight: 220,
@@ -36,14 +37,19 @@ const dropzoneBase: CSSProperties = {
 
 let jobId = 0;
 
-function newJob(name: string, sizeMb: number): UploadJob {
-  const check = validateFile(name, sizeMb);
+function newJob(file: File): UploadJob {
+  const sizeMb = file.size / 1_000_000;
+  const check = validateFile(file.name, sizeMb);
   return {
     id: `job_${++jobId}`,
-    name,
-    ext: (name.split(".").pop() ?? "").toUpperCase(),
+    file,
+    name: file.name,
+    ext: (file.name.split(".").pop() ?? "").toUpperCase(),
     sizeMb,
-    type: "Detecting…",
+    // The classifier runs server-side, so the type is unknown until the
+    // pipeline reports one. Guessing from the filename would put a label on
+    // the document that no service ever agreed to.
+    type: "Detecting\u2026",
     stage: check.ok ? "queued" : "rejected",
     rejected: check.ok ? undefined : check.reason,
     uploadPct: 0,
@@ -60,105 +66,213 @@ function fmtElapsed(ms: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+const TERMINAL: UploadJob["stage"][] = ["done", "failed", "cancelled", "rejected"];
+
+/** Maps a document lifecycle state onto the pipeline track the panel renders. */
+function stepForStatus(status: string, reported?: { step: number } | null): number {
+  if (status === "completed") return PIPELINE_STEPS.length;
+  if (status === "queued") return 1;
+  // The pipeline reports its own stage once processing-service is running;
+  // until then a processing document sits at the first post-upload step.
+  return reported?.step ?? 2;
+}
+
+function errorFor(cause: unknown, name: string): UploadJob["error"] {
+  const api = cause instanceof ApiError ? cause : null;
+  return {
+    code: api?.code ?? "ERR_UPLOAD_FAILED",
+    title: api?.title ?? "Upload failed",
+    detail: api?.detail ?? `${name} could not be uploaded.`,
+    job: "upload",
+    at: new Date().toISOString(),
+    retryable: api?.retryable ?? true,
+  };
+}
+
 /**
- * Owns the whole simulated ingestion run. Replacing the mock means replacing
- * the body of `tick` with progress events coming off the real job stream — the
- * `UploadJob` shape the UI renders does not change.
+ * Owns the real ingestion run.
+ *
+ * Every stage transition here is caused by something a service actually said:
+ * the transfer percentage comes from the XHR upload progress event, and the
+ * pipeline stage comes from polling `GET /documents/{id}/status`. Nothing
+ * advances on a timer of its own.
  */
 function useUploadQueue() {
   const [jobs, setJobs] = useState<UploadJob[]>([]);
-  const [forceFail, setForceFail] = useState(false);
-  const forceFailRef = useRef(forceFail);
+  const controllers = useRef(new Map<string, AbortController>());
+  // Guards against a second start for the same job when the effect re-runs
+  // before React has committed the "uploading" state.
+  const started = useRef(new Set<string>());
 
-  useEffect(() => {
-    forceFailRef.current = forceFail;
-  }, [forceFail]);
-
-  const tick = useCallback(() => {
-    setJobs((prev) => {
-      let changed = false;
-      const activeUploads = prev.filter((j) => j.stage === "uploading").length;
-      let slots = Math.max(0, 2 - activeUploads);
-
-      const next = prev.map((job): UploadJob => {
-        if (job.stage === "done" || job.stage === "failed" || job.stage === "cancelled" || job.stage === "rejected") {
-          return job;
-        }
-        changed = true;
-        const elapsedMs = Date.now() - job.startedAt;
-
-        if (job.stage === "queued") {
-          if (slots <= 0) return { ...job, elapsedMs };
-          slots -= 1;
-          return { ...job, stage: "uploading", elapsedMs };
-        }
-
-        if (job.stage === "uploading") {
-          const uploadPct = Math.min(100, job.uploadPct + 5 + (job.sizeMb > 8 ? 2 : 6));
-          if (uploadPct < 100) return { ...job, uploadPct, elapsedMs };
-          return { ...job, uploadPct: 100, stage: "processing", step: 1, stepPct: 0, type: classifyByName(job.name), elapsedMs };
-        }
-
-        // processing
-        const outcome = pipelineOutcome(job.name, job.retries, forceFailRef.current);
-        const stepPct = job.stepPct + 16;
-
-        if (outcome && job.step === outcome.failAtStep && stepPct >= 50) {
-          return { ...job, stage: "failed", error: outcome.error, elapsedMs };
-        }
-
-        if (stepPct < 100) return { ...job, stepPct, elapsedMs };
-
-        const step = job.step + 1;
-        if (step > PIPELINE_STEPS.length) {
-          const doc = commitUpload(job.name, job.sizeMb, job.type === "Detecting…" ? "Contract" : job.type);
-          return { ...job, stage: "done", step: PIPELINE_STEPS.length, stepPct: 100, docId: doc.id, elapsedMs };
-        }
-        return { ...job, step, stepPct: 0, elapsedMs };
-      });
-
-      return changed ? next : prev;
-    });
+  const patch = useCallback((id: string, next: Partial<UploadJob>) => {
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...next } : j)));
   }, []);
 
+  // The elapsed clock, which is the only thing that legitimately ticks.
   useEffect(() => {
-    const t = setInterval(tick, TICK_MS);
+    const t = setInterval(() => {
+      setJobs((prev) => {
+        let changed = false;
+        const next = prev.map((j) => {
+          if (TERMINAL.includes(j.stage)) return j;
+          changed = true;
+          return { ...j, elapsedMs: Date.now() - j.startedAt };
+        });
+        return changed ? next : prev;
+      });
+    }, CLOCK_MS);
     return () => clearInterval(t);
-  }, [tick]);
+  }, []);
 
-  const add = useCallback((files: [string, number][]) => {
+  const send = useCallback(
+    async (job: UploadJob) => {
+      const controller = new AbortController();
+      controllers.current.set(job.id, controller);
+      patch(job.id, { stage: "uploading", uploadPct: 0 });
+
+      try {
+        const doc = await uploadDocument(job.file, {
+          signal: controller.signal,
+          onProgress: (uploadPct) => patch(job.id, { uploadPct }),
+        });
+        patch(job.id, {
+          stage: "processing",
+          uploadPct: 100,
+          docId: doc.id,
+          type: doc.type,
+          step: stepForStatus(doc.status, doc.progress),
+          stepPct: doc.progress?.pct ?? 0,
+        });
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        patch(job.id, { stage: "failed", error: errorFor(cause, job.name) });
+      } finally {
+        controllers.current.delete(job.id);
+      }
+    },
+    [patch],
+  );
+
+  // Admits queued jobs up to the concurrency limit.
+  useEffect(() => {
+    const active = jobs.filter((j) => j.stage === "uploading").length;
+    const free = MAX_CONCURRENT - active;
+    if (free <= 0) return;
+
+    for (const job of jobs.filter((j) => j.stage === "queued").slice(0, free)) {
+      if (started.current.has(job.id)) continue;
+      started.current.add(job.id);
+      void send(job);
+    }
+  }, [jobs, send]);
+
+  // Follows every uploaded document until its pipeline run settles. The key is
+  // a string so the effect restarts only when the set of live jobs changes,
+  // not on every progress tick.
+  const live = jobs
+    .filter((j) => j.stage === "processing" && j.docId)
+    .map((j) => `${j.id}:${j.docId}`)
+    .join(",");
+
+  useEffect(() => {
+    if (live === "") return;
+    const controller = new AbortController();
+
+    const poll = async () => {
+      const pairs = live.split(",").map((entry) => entry.split(":") as [string, string]);
+      await Promise.all(
+        pairs.map(async ([id, docId]) => {
+          try {
+            const status = await getDocumentStatus(docId, controller.signal);
+            if (status.status === "completed") {
+              patch(id, { stage: "done", step: PIPELINE_STEPS.length, stepPct: 100 });
+            } else if (status.status === "failed") {
+              patch(id, { stage: "failed", error: status.error ?? errorFor(null, docId) });
+            } else {
+              patch(id, {
+                step: stepForStatus(status.status, status.progress),
+                stepPct: status.progress?.pct ?? 0,
+              });
+            }
+          } catch {
+            // A dropped poll is not a failed document - the next tick retries.
+          }
+        }),
+      );
+    };
+
+    const t = setInterval(poll, POLL_MS);
+    return () => {
+      controller.abort();
+      clearInterval(t);
+    };
+  }, [live, patch]);
+
+  const add = useCallback((files: File[]) => {
     setJobs((prev) => {
       const room = UPLOAD_LIMITS.maxBatch - prev.length;
-      return [...prev, ...files.slice(0, Math.max(0, room)).map(([n, s]) => newJob(n, s))];
+      return [...prev, ...files.slice(0, Math.max(0, room)).map(newJob)];
     });
   }, []);
 
+  /**
+   * Re-uploads the file. There is no reprocess route, so a retry genuinely
+   * creates a new document rather than re-running the old one.
+   */
   const retry = useCallback((id: string) => {
     setJobs((prev) =>
       prev.map((j) =>
         j.id === id
-          ? { ...j, stage: "processing", step: 1, stepPct: 0, error: undefined, retries: j.retries + 1, startedAt: Date.now(), elapsedMs: 0 }
+          ? {
+              ...j,
+              stage: "queued",
+              step: 0,
+              stepPct: 0,
+              uploadPct: 0,
+              error: undefined,
+              docId: undefined,
+              retries: j.retries + 1,
+              startedAt: Date.now(),
+              elapsedMs: 0,
+            }
           : j,
       ),
     );
+    started.current.delete(id);
   }, []);
 
   const cancel = useCallback((id: string) => {
+    controllers.current.get(id)?.abort();
+    controllers.current.delete(id);
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, stage: "cancelled" } : j)));
   }, []);
 
-  const remove = useCallback((id: string) => setJobs((prev) => prev.filter((j) => j.id !== id)), []);
+  const remove = useCallback((id: string) => {
+    controllers.current.get(id)?.abort();
+    controllers.current.delete(id);
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
   const clearFinished = useCallback(
-    () => setJobs((prev) => prev.filter((j) => j.stage !== "done" && j.stage !== "cancelled" && j.stage !== "rejected")),
+    () =>
+      setJobs((prev) =>
+        prev.filter((j) => j.stage !== "done" && j.stage !== "cancelled" && j.stage !== "rejected"),
+      ),
     [],
   );
-  const clearAll = useCallback(() => setJobs([]), []);
 
-  return { jobs, add, retry, cancel, remove, clearFinished, clearAll, forceFail, setForceFail };
+  const clearAll = useCallback(() => {
+    for (const c of controllers.current.values()) c.abort();
+    controllers.current.clear();
+    setJobs([]);
+  }, []);
+
+  return { jobs, add, retry, cancel, remove, clearFinished, clearAll };
 }
 
 export function UploadView() {
-  const { jobs, add, retry, cancel, remove, clearFinished, clearAll, forceFail, setForceFail } = useUploadQueue();
+  const { jobs, add, retry, cancel, remove, clearFinished, clearAll } = useUploadQueue();
+  const health = useHealth();
   const [dragging, setDragging] = useState(false);
   const [dragCount, setDragCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -195,7 +309,7 @@ export function UploadView() {
 
   const onFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    add(Array.from(files).map((f) => [f.name, f.size / 1_000_000] as [string, number]));
+    add(Array.from(files));
   };
 
   // Paste-to-upload, as advertised in the dropzone copy.
@@ -253,10 +367,22 @@ export function UploadView() {
           >
             <span
               className="dot"
-              style={{ width: 6, height: 6, background: failed.length ? "var(--warn)" : "var(--ok)" }}
+              style={{
+                width: 6,
+                height: 6,
+                background:
+                  health.status === "ready"
+                    ? "var(--ok)"
+                    : health.status === "degraded"
+                      ? "var(--warn)"
+                      : "var(--text-3)",
+              }}
             />
-            <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}>
-              {failed.length ? "Pipeline degraded" : "Pipeline healthy"}
+            <span
+              style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}
+              title={health.detail}
+            >
+              {health.label}
             </span>
             <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
               p50 3.4s
@@ -469,9 +595,6 @@ export function UploadView() {
               <Button size="dm" onClick={() => inputRef.current?.click()} style={{ height: 34, fontWeight: 500, padding: "0 16px" }}>
                 Select files
               </Button>
-              <Button variant="surface" size="dmQuiet" onClick={() => add(SAMPLE_FILES)} style={{ height: 34 }}>
-                Run a sample batch
-              </Button>
             </div>
           </Anim>
         )}
@@ -490,30 +613,14 @@ export function UploadView() {
               </span>
             </span>
           ))}
-          <label
-            style={{
-              marginLeft: "auto",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              height: 32,
-              padding: "0 10px",
-              borderRadius: 10,
-              border: `1px solid var(${forceFail ? "--bad-border" : "--border"})`,
-              background: forceFail ? "var(--bad-soft)" : "var(--surface)",
-              cursor: "pointer",
-            }}
+          <span
+            className="mono"
+            style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-3)" }}
+            title={health.detail}
           >
-            <input
-              type="checkbox"
-              checked={forceFail}
-              onChange={(e) => setForceFail(e.target.checked)}
-              style={{ accentColor: "var(--bad)", width: 13, height: 13 }}
-            />
-            <span style={{ fontSize: 11, fontWeight: 500, color: forceFail ? "var(--bad)" : "var(--text-2)" }}>
-              Force pipeline failure
-            </span>
-          </label>
+            {health.services.map((svc) => `${svc.service}: ${svc.state}`).join("  \u00b7  ") ||
+              "checking services\u2026"}
+          </span>
         </div>
       </Anim>
 
@@ -524,11 +631,6 @@ export function UploadView() {
           glyph="⌁"
           title="Nothing in the queue"
           body="Files you add appear here with live progress through all seven pipeline stages — upload, classification, extraction, PII scanning, risk scoring and indexing."
-          actions={
-            <Button variant="surface" size="dmQuiet" onClick={() => add(SAMPLE_FILES)}>
-              Run a sample batch
-            </Button>
-          }
         />
       ) : (
         <Anim
