@@ -20,7 +20,8 @@ service behaves differently from what a case here assumes.
 
 Three services are empty directories, so anything crossing them is 🔒:
 
-- `api-gateway` — no auth, no JWT minting, no routing
+- `api-gateway` — authenticates and issues JWTs, but does not yet proxy
+  to the downstream services, so nothing behind it is protected
 - `processing-service` — nothing consumes the `document_jobs` stream,
   so an uploaded document never leaves `UPLOADED`
 - PDF text extraction — lives in `processing-service`; `ai-service`
@@ -157,17 +158,45 @@ instead of routing around it.
 
 ## 9. Auth
 
-| ID    | Case                           | Expected | Status |
-| ----- | ------------------------------ | -------- | ------ |
-| AU-01 | Request without a token        | 401      | 🔒     |
-| AU-02 | Request with a malformed token | 401      | 🔒     |
-| AU-03 | Request with an expired token  | 401      | 🔒     |
-| AU-04 | Request with a valid token     | 200      | 🔒     |
-| AU-05 | Health probes need no token    | 200      | ✅     |
+| ID    | Case                                           | Expected                                        | Status                     |
+| ----- | ---------------------------------------------- | ----------------------------------------------- | -------------------------- |
+| AU-01 | Register a new user                            | 200, email echoed normalised                    | ✅                         |
+| AU-02 | Register with a duplicate email                | 409, `field` is `email`                         | ✅                         |
+| AU-03 | Register with a malformed email                | 422, `field` is `email`                         | ✅                         |
+| AU-04 | Register with a password under 8 characters    | 422, `field` is `password`                      | ✅                         |
+| AU-05 | Register with an org name under 2 characters   | 422, `field` is `org`                           | ✅                         |
+| AU-06 | Email case is normalised                       | `Alice@X.COM` and `alice@x.com` are one account | ✅                         |
+| AU-07 | Validation errors name the offending field     | `ok`, `field`, `title`, `detail` present        | ✅                         |
+| AU-08 | Login with valid credentials                   | 200 with a token                                | ✅                         |
+| AU-09 | Login returns session details                  | email, name, derived initials                   | ✅                         |
+| AU-10 | Login with a wrong password                    | 401                                             | ✅                         |
+| AU-11 | Login with an unknown email                    | 401                                             | ✅                         |
+| AU-12 | Failed login does not reveal account existence | Identical status and message either way         | ✅                         |
+| AU-13 | Login response never contains the password     | Absent from the body                            | ✅                         |
+| AU-14 | Token is a well-formed JWT                     | Three segments                                  | ✅                         |
+| AU-15 | Token subject is the user                      | `sub` matches the email                         | ✅                         |
+| AU-16 | Token carries a role                           | `role` present                                  | ✅                         |
+| AU-17 | Token expires                                  | `exp` present and in the future                 | ✅                         |
+| AU-18 | Token lifetime is bounded                      | ≤ 24h                                           | ✅                         |
+| AU-19 | Token carries no credential material           | No password or hash in claims                   | ✅                         |
+| AU-20 | Concurrent sessions                            | A second login does not invalidate the first    | ✅                         |
+| AU-21 | `X-Request-ID` is echoed                       | Caller's id survives the hop                    | ✅                         |
+| AU-22 | `X-Request-ID` is generated when absent        | Always present on the response                  | ✅                         |
+| AU-23 | Health probes need no token                    | 200                                             | ✅                         |
+| AU-24 | A protected route without a token              | 401                                             | 🔒 no protected routes yet |
+| AU-25 | A protected route with a malformed token       | 401                                             | 🔒                         |
+| AU-26 | A protected route with an expired token        | 401                                             | 🔒                         |
+| AU-27 | A protected route with a valid token           | 200                                             | 🔒                         |
 
-`search-service` has JWT middleware but it has never run against a real
-token — every test today sets `DISABLE_AUTH=true`, because nothing mints
-tokens yet.
+AU-12 matters more than it looks: if a wrong password and an unknown
+account return different responses, login becomes an account
+enumerator. Both currently return an identical 401.
+
+AU-24 through AU-27 are blocked on the gateway proxying to the
+downstream services. It authenticates today but does not yet route, so
+there is nothing behind it to protect. `search-service` has JWT
+middleware that has still never run against a real token — every test
+sets `DISABLE_AUTH=true`.
 
 ## 10. End-to-end
 
@@ -206,9 +235,11 @@ ready; the monolith is not, and has no owner.
 Behaviours confirmed and raised, documented here so they are not
 rediscovered:
 
-| Finding                                                                | Where                             | State                                                                                    |
-| ---------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
-| `ivfflat` with `lists=100` returned empty result sets on small corpora | `database/schema.sql`             | Fixed — index removed, SR-09 passes                                                      |
-| `top_k` has no upper bound                                             | `search-service`                  | Open, SR-10 xfail                                                                        |
-| `page` is null for content indexed via `POST /index`                   | `search-service`                  | Open, SR-11                                                                              |
-| `sentence-transformers` pulls PyTorch and CUDA into the image          | `search-service/requirements.txt` | Open — unused under `EMBEDDING_BACKEND=mock`, and the likely cause of CI disk exhaustion |
+| Finding                                                                | Where                             | State                                                                                      |
+| ---------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `ivfflat` with `lists=100` returned empty result sets on small corpora | `database/schema.sql`             | Fixed — index removed, SR-09 passes                                                        |
+| `top_k` has no upper bound                                             | `search-service`                  | Open, SR-10 xfail                                                                          |
+| `page` is null for content indexed via `POST /index`                   | `search-service`                  | Open, SR-11                                                                                |
+| `sentence-transformers` pulls PyTorch and CUDA into the image          | `search-service/requirements.txt` | Open — unused under `EMBEDDING_BACKEND=mock`, and the likely cause of CI disk exhaustion   |
+| The gateway's user store is in-memory                                  | `api-gateway/app/auth/store.py`   | Open — M1 scope. Registrations do not survive a restart and are not shared across replicas |
+| Default `STORAGE_DIR` is relative                                      | `document-service`                | Open — running locally writes uploaded PDFs into the source tree                           |
