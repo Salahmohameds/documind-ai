@@ -15,9 +15,11 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.auth.dependencies import AuthError
 from app.config import settings
 from app.logging_config import setup_logging
-from app.routes import auth, health
+from app.proxy import close_client
+from app.routes import auth, documents, health, search
 
 # ---------------------------------------------------------------------------
 # Logging — must be configured before any logger is used.
@@ -44,6 +46,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    # Close the shared httpx client used for reverse-proxying.
+    await close_client()
     logger.info("shutting_down")
 
 
@@ -63,6 +67,8 @@ app = FastAPI(
 # --- Routes ----------------------------------------------------------------
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(search.router)
+app.include_router(documents.router)
 
 
 # --- Middleware: request ID propagation ------------------------------------
@@ -95,6 +101,22 @@ async def request_id_middleware(request: Request, call_next):
         },
     )
     return response
+
+
+# --- Auth error handler (401) ----------------------------------------------
+@app.exception_handler(AuthError)
+async def auth_error_handler(
+    _request: Request, exc: AuthError
+) -> JSONResponse:
+    """Return 401 for any JWT validation failure."""
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": "Unauthorized",
+            "detail": exc.detail,
+            "code": "ERR_AUTH",
+        },
+    )
 
 
 # --- Global exception handler ---------------------------------------------

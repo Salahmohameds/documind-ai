@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
 
+    # --- Downstream services ------------------------------------------------
+    # Local defaults assume services run directly on the host.
+    # In docker-compose / K8s these resolve to container DNS names.
+    search_service_url: str = "http://localhost:8080"
+    document_service_url: str = "http://localhost:8081"
+    ai_service_url: str = "http://localhost:8082"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
