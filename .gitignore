@@ -76,3 +76,9 @@ tmp/
 # ---- Deployment artifacts (never commit) ----
 artifacts/
 *.tfbackend
+
+# Generated test corpus - reproducible from tests/fixtures/generator
+# with the seed recorded in manifest. json. Do not commit the artifacts.
+tests/fixtures/documents/
+tests/fixtures/text/
+tests/fixtures/ground-truth/
