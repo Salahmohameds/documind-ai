@@ -130,6 +130,37 @@ Liveness deliberately tracks the consumer, not the HTTP server: a worker whose
 consumer task has died answers HTTP perfectly while the queue silently grows,
 and nothing else in the platform detects that.
 
+## Observability
+
+Follows `services/monitoring/GUIDE.md`, adapted where a worker differs from a
+request-serving service — the reasoning is in `app/observability.py`.
+
+| Signal | Where |
+|--------|-------|
+| Logs | Structured JSON. `request_id` **is the OTel trace ID** (32-char hex) whenever a span is active, so a Grafana log line and a Jaeger trace carry the same string. |
+| Metrics | `/metrics`, scraped via the **ServiceMonitor** at the bottom of the Deployment. Both the shared `http_requests_total` family the platform dashboard groups by job, and the worker's own `documind_processing_*` series. |
+| Traces | One `process_document` span per job, a `stage.*` child per pipeline stage, and `traceparent` propagated to ai-service and search-service by the httpx instrumentation. |
+
+Three deliberate differences from the guide:
+
+1. **The traced unit is a job, not a request.** This service's only inbound HTTP
+   is health probes, so `FastAPIInstrumentor` alone would produce a trace view
+   full of `GET /liveness` and nothing about the work. The app is still
+   instrumented (probes excluded), but the spans that matter are opened by the
+   consumer around each job.
+2. **httpx, not requests** — the guide installs
+   `opentelemetry-instrumentation-requests`; this service calls downstream with
+   httpx and instruments that instead. Same effect on `traceparent`.
+3. **Export is opt-in on `OTEL_EXPORTER_OTLP_ENDPOINT`**, per the
+   services/README.md wording. The guide's `otel_setup.py` defaults the endpoint
+   to the in-cluster collector, which under compose means retrying gRPC exports
+   forever against nothing. The Kubernetes ConfigMap sets it; compose does not.
+
+The ServiceMonitor selects on `app.kubernetes.io/name`, not the guide's
+template `app:` — that is the label `kubernetes/README.md` mandates and the one
+the Service actually carries. A copied `app:` selector matches nothing and
+fails silently, which looks exactly like having no ServiceMonitor at all.
+
 ## Configuration
 
 Every value comes from the environment; nothing is hardcoded. Defaults are for
@@ -167,6 +198,7 @@ local development and work offline against `docker compose`.
 | `RETRY_BASE_DELAY_S` / `RETRY_MAX_DELAY_S` | `0.5` / `8` | Full-jitter backoff. |
 | `CIRCUIT_BREAKER_THRESHOLD` / `CIRCUIT_BREAKER_RESET_S` | `5` / `30` | |
 | `MIN_EXTRACTED_CHARS` | `40` | Below this the PDF is treated as a scan. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | Empty disables span export entirely. Set by the Kubernetes ConfigMap to the in-cluster collector. |
 
 ## Local run
 

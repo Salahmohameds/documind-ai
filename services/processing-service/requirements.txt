@@ -26,8 +26,19 @@ pydantic-settings==2.9.1
 # Logging
 python-json-logger==3.3.0
 
-# Metrics
+# Observability — services/monitoring/GUIDE.md
+# The guide's stack, pinned. Two deliberate differences from
+# services/monitoring/requirements.txt, both noted in app/observability.py:
+#   * -httpx rather than -requests: this service uses httpx, not requests.
+#   * prometheus-client is kept alongside the instrumentator, because the
+#     worker's own series (queue depth, job duration) are not HTTP metrics and
+#     the instrumentator does not produce them.
 prometheus-client==0.22.0
+prometheus-fastapi-instrumentator==7.1.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-httpx==0.50b0
 
 # PDF text extraction. Pure Python — no system packages, which keeps the image
 # slim and the build reproducible. Scanned/image-only PDFs are out of scope

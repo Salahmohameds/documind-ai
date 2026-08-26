@@ -127,3 +127,38 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+---
+# Prometheus scrape target — services/monitoring/GUIDE.md §3.
+#
+# This is NOT optional decoration. kube-prometheus-stack discovers targets via
+# ServiceMonitor, not via `prometheus.io/scrape` pod annotations, so without
+# this object every series this worker exports — including the queue depth the
+# HPA story is told with — is collected by nobody.
+#
+# It is discovered from any namespace because
+# kubernetes/monitoring/kube-prometheus-stack-values.yaml sets
+# serviceMonitorSelectorNilUsesHelmValues: false; the `release` label below
+# matches the Helm release name the guide installs.
+#
+# The guide's template selects on `app: <service-name>`. This selects on
+# `app.kubernetes.io/name` instead, because that is the label
+# kubernetes/README.md mandates and the one the Service actually carries — a
+# copied `app:` selector would match nothing and fail silently, which is the
+# same outcome as having no ServiceMonitor at all.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+    release: kube-prom-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: processing-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

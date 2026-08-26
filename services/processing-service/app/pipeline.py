@@ -41,6 +41,7 @@ from app.database import session_scope
 from app.errors import ProcessingError
 from app.extraction import pdf
 from app.metrics import STAGE_DURATION, STAGE_FAILURES
+from app.observability import stage_span
 from app.repositories.jobs import JobRepository, to_document_type
 from app.storage.base import DocumentReader
 
@@ -266,33 +267,40 @@ class ProcessingPipeline:
         """
         self._set_stage(event.job_id, stage)
         started = time.monotonic()
-        try:
-            response = await call()
-        except ProcessingError as exc:
-            STAGE_FAILURES.labels(stage=stage, error_code=exc.code).inc()
-            result.skipped_stages.append(stage)
-            logger.warning(
-                "stage_failed",
-                extra={
-                    "stage": stage,
-                    "error_code": exc.code,
-                    "error": str(exc),
-                    "job_failed": False,
-                },
-            )
-            return None
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            STAGE_FAILURES.labels(stage=stage, error_code="ERR_UNEXPECTED").inc()
-            result.skipped_stages.append(stage)
-            logger.exception(
-                "stage_failed",
-                extra={"stage": stage, "error": str(exc), "job_failed": False},
-            )
-            return None
-        finally:
-            STAGE_DURATION.labels(stage=stage).observe(time.monotonic() - started)
+        with stage_span(stage) as span:
+            try:
+                response = await call()
+            except ProcessingError as exc:
+                STAGE_FAILURES.labels(stage=stage, error_code=exc.code).inc()
+                result.skipped_stages.append(stage)
+                # Recorded on the span but NOT set as a span error: the stage
+                # failed, the job did not. A trace that shows this as a failure
+                # would misreport a document that came out searchable.
+                span.set_attribute("documind.error_code", exc.code)
+                span.set_attribute("documind.absorbed_failure", True)
+                logger.warning(
+                    "stage_failed",
+                    extra={
+                        "stage": stage,
+                        "error_code": exc.code,
+                        "error": str(exc),
+                        "job_failed": False,
+                    },
+                )
+                return None
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                STAGE_FAILURES.labels(stage=stage, error_code="ERR_UNEXPECTED").inc()
+                result.skipped_stages.append(stage)
+                span.set_attribute("documind.absorbed_failure", True)
+                logger.exception(
+                    "stage_failed",
+                    extra={"stage": stage, "error": str(exc), "job_failed": False},
+                )
+                return None
+            finally:
+                STAGE_DURATION.labels(stage=stage).observe(time.monotonic() - started)
 
         if is_degraded(response):
             result.degraded = True
@@ -313,13 +321,20 @@ class ProcessingPipeline:
 
 
 class _stage:
-    """Time a spine stage and record it against the stage histogram."""
+    """Time a spine stage, record it, and open its trace span.
+
+    One construct for all three so a stage cannot be added that is timed but
+    not traced — the drift that makes a dashboard and a trace tell different
+    stories about the same run.
+    """
 
     def __init__(self, name: str) -> None:
         self._name = name
 
     def __enter__(self) -> _stage:
         self._started = time.monotonic()
+        self._span_cm = stage_span(self._name)
+        self._span = self._span_cm.__enter__()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -328,4 +343,8 @@ class _stage:
         )
         if exc_type is not None and issubclass(exc_type, ProcessingError):
             STAGE_FAILURES.labels(stage=self._name, error_code=exc.code).inc()
+            self._span.set_attribute("documind.error_code", exc.code)
+        # Hand the exception to the span so it is recorded and the span status
+        # is set to error, then let it propagate.
+        self._span_cm.__exit__(exc_type, exc, tb)
         return False

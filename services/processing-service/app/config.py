@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     circuit_breaker_threshold: int = 5
     circuit_breaker_reset_s: float = 30.0
 
+    # --- Observability ------------------------------------------------------
+    # services/README.md: 'export OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set'.
+    # Empty by default so compose, where no collector runs, does not retry gRPC
+    # exports in the background forever. The Kubernetes ConfigMap sets it.
+    otel_exporter_otlp_endpoint: str = ""
+
     # --- Text extraction ----------------------------------------------------
     # Below this, the PDF is treated as having no usable text layer. A handful
     # of stray ligatures from an image-only scan is not text.

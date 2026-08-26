@@ -49,6 +49,7 @@ from redis.exceptions import ResponseError
 from app.config import settings
 from app.errors import JobTimeoutError, ProcessingError
 from app.logging_config import bind_job_context
+from app.observability import current_trace_id, job_span
 from app.metrics import (
     JOB_DURATION,
     JOBS,
@@ -231,15 +232,36 @@ class StreamConsumer:
     # -- one job -----------------------------------------------------------
     async def _run_job(self, message_id: str, fields: dict[str, str]) -> None:
         attempt = await self._delivery_count(message_id)
-        # One correlation id per job, propagated to ai-service and
-        # search-service as X-Request-ID.
-        request_id = fields.get("request_id") or f"job-{uuid.uuid4().hex[:16]}"
-        bind_job_context(
-            job_id=message_id,
-            document_id=fields.get("document_id", "-"),
-            request_id=request_id,
-        )
+        document_id = fields.get("document_id", "-")
 
+        # The root span for this job — the worker's equivalent of a request
+        # span, since its only inbound HTTP is health probes. Opened before
+        # anything else so every log line and every downstream call inside it
+        # carries the trace.
+        with job_span(
+            job_id=message_id, document_id=document_id, attempt=attempt
+        ) as span:
+            # request_id is the trace id when tracing is live, so a log line
+            # and a Jaeger trace share one string. Falls back to the producer's
+            # id, then to a generated one, so correlation still works with the
+            # exporter switched off.
+            request_id = (
+                current_trace_id_or(None)
+                or fields.get("request_id")
+                or f"job-{uuid.uuid4().hex[:16]}"
+            )
+            bind_job_context(
+                job_id=message_id,
+                document_id=document_id,
+                request_id=request_id,
+            )
+            span.set_attribute("documind.request_id", request_id)
+
+            await self._run_job_body(message_id, fields, attempt)
+
+    async def _run_job_body(
+        self, message_id: str, fields: dict[str, str], attempt: int
+    ) -> None:
         JOBS_IN_FLIGHT.inc()
         started = time.monotonic()
         try:
@@ -558,6 +580,12 @@ class StreamConsumer:
 # decoding on, but these keep the consumer correct either way — including under
 # fakeredis in the tests.
 # --------------------------------------------------------------------------
+def current_trace_id_or(default: str | None) -> str | None:
+    """The active trace id, or ``default`` when tracing is not exporting."""
+    trace_id = current_trace_id()
+    return default if trace_id == "-" else trace_id
+
+
 def _decode(value) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
 

@@ -32,6 +32,7 @@ from app.clients.ai import AIServiceClient
 from app.clients.search import SearchServiceClient
 from app.config import settings
 from app.logging_config import setup_logging
+from app.observability import setup_metrics, setup_tracing
 from app.pipeline import ProcessingPipeline
 from app.queue.consumer import StreamConsumer
 from app.routes import health
@@ -140,6 +141,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# services/monitoring/GUIDE.md, adapted for a worker — see app/observability.py.
+# Both run at import time, before the lifespan starts the consumer, so the
+# first job is already traced.
+setup_tracing(app)
+setup_metrics(app)
 
 app.include_router(health.router)
 
