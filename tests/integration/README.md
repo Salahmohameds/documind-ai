@@ -53,3 +53,25 @@ Documents indexed by `index_sample_documents.py` do carry page numbers,
 because it parses `[PAGE n]` markers first. Citations are a core feature,
 so whatever feeds the real pipeline must preserve page information.
 Raised with the search/data owner.
+
+## document-service
+
+```bash
+docker compose up -d postgres redis
+cd services/document-service
+DATABASE_URL=postgresql://documind:documind_dev_only@localhost:5432/documind \
+    REDIS_URL=redis://localhost:6379/0 \
+    STORAGE_TYPE=local STORAGE_DIR=./storage \
+    uvicorn app.main:app --port 8081
+```
+
+```bash
+pytest tests/integration/document_service -v
+```
+
+Upload tests need the synthetic corpus. Generate it first, or the suite
+skips:
+
+```bash
+cd tests/fixtures/generator && python generate.py --contracts 2 --invoices 2
+```
