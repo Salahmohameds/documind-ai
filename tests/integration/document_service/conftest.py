@@ -57,12 +57,21 @@ def sample_pdf():
         return f.read()
 
 
-def pdf_upload(content, filename="test.pdf"):
-    return {"file": (filename, io.BytesIO(content), "application/pdf")}
+@pytest.fixture
+def pdf_upload():
+    """Build a multipart upload payload.
+
+    A fixture rather than a plain function so test modules pick it up
+    automatically — under --import-mode=importlib, importing from
+    conftest by name does not resolve.
+    """
+    def _build(content, filename="test.pdf"):
+        return {"file": (filename, io.BytesIO(content), "application/pdf")}
+    return _build
 
 
 @pytest.fixture
-def uploaded(client, sample_pdf):
+def uploaded(client, sample_pdf, pdf_upload):
     """Upload a document and return its id."""
     r = client.post("/documents", files=pdf_upload(sample_pdf, "contract_0000.pdf"))
     assert r.status_code == 202, r.text
