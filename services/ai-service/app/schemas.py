@@ -19,7 +19,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-DocumentType = Literal["invoice", "contract", "receipt", "report", "unknown"]
+# Constrained to the three values database/schema.sql allows:
+#   document_type TEXT CHECK (document_type IN ('INVOICE','CONTRACT','UNKNOWN'))
+# Returning "receipt" would have thrown a constraint violation the first time
+# role 5 persisted a classification. Receipt/report signals still influence
+# the score breakdown and the rationale - they just resolve to "unknown"
+# rather than inventing a label the schema cannot store.
+DocumentType = Literal["invoice", "contract", "unknown"]
 RiskBand = Literal["low", "medium", "high"]
 Severity = Literal["low", "medium", "high"]
 
@@ -149,7 +155,23 @@ class RiskFinding(BaseModel):
     title: str
     severity: Severity
     weight: int
+    category: Literal["financial", "legal", "operational"]
     evidence: Evidence | None = None
+
+
+class RiskCategories(BaseModel):
+    """Per-category bands, shaped to fit the risk_assessments table.
+
+    database/schema.sql stores financial_risk / legal_risk /
+    operational_risk as separate Low|Medium|High columns. Each rule in the
+    rule set carries a category, so these are derived from the rules that
+    actually fired rather than asked of a model - the same auditability that
+    applies to the headline score.
+    """
+
+    financial: RiskBand
+    legal: RiskBand
+    operational: RiskBand
 
 
 class RiskScoring(BaseModel):
@@ -182,6 +204,7 @@ class RiskResponse(BaseModel):
     score: int = Field(ge=0, le=100)
     band: RiskBand
     findings: list[RiskFinding]
+    categories: RiskCategories
     explanation: str
     scoring: RiskScoring
     meta: ResponseMeta
@@ -221,6 +244,32 @@ class AnswerResponse(BaseModel):
     grounded: bool
     refused: bool
     confidence: float = Field(ge=0.0, le=1.0)
+    meta: ResponseMeta
+
+
+# --------------------------------------------------------------------------
+# /summarize
+# --------------------------------------------------------------------------
+class SummarizeRequest(BaseModel):
+    text: str = Field(min_length=1)
+    document_id: str | None = None
+    document_type: DocumentType | None = None
+    max_sentences: int = Field(default=4, ge=1, le=12)
+    max_points: int = Field(default=5, ge=0, le=12)
+    # 'executive' reads for a decision-maker; 'technical' keeps the document's
+    # own terms and numbers intact.
+    style: Literal["executive", "technical"] = "executive"
+    request_id: str | None = None
+
+
+class SummarizeResponse(BaseModel):
+    document_id: str | None = None
+    document_type: DocumentType
+    summary: str
+    key_points: list[str]
+    # True when the text was too short or fragmentary to summarise. Saying so
+    # is a correct outcome; padding a two-line document into a paragraph is not.
+    insufficient_text: bool = False
     meta: ResponseMeta
 
 

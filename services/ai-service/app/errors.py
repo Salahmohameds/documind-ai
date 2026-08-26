@@ -38,6 +38,21 @@ class ProviderUnavailableError(AIServiceError):
     retryable = True
 
 
+class ProviderRateLimitedError(AIServiceError):
+    """Every model in the rotation is rate-limited.
+
+    Distinct from ProviderUnavailableError because the remedy is different: the
+    provider is healthy and the credential is fine, there is simply no quota
+    left. Retrying helps only after time passes, so the worker should back off
+    generously rather than re-queue immediately.
+    """
+
+    status_code = 429
+    code = "ERR_PROVIDER_RATE_LIMITED"
+    title = "All models are rate limited"
+    retryable = True
+
+
 class CircuitOpenError(AIServiceError):
     status_code = 503
     code = "ERR_CIRCUIT_OPEN"

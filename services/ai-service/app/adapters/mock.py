@@ -117,6 +117,7 @@ class MockProvider(AIProvider):
             "risk_explain": self._task_risk_explain,
             "classify": self._task_classify,
             "extract": self._task_extract,
+            "summarize": self._task_summarize,
         }.get(task, self._task_generic)
 
         text = handler(context)
@@ -191,6 +192,38 @@ class MockProvider(AIProvider):
         text = context.get("text", "")
         label, confidence, _scores, rationale = classify_rules.classify(text)
         return json.dumps({"label": label, "confidence": confidence, "rationale": rationale})
+
+    def _task_summarize(self, context: dict[str, Any]) -> str:
+        """Extractive summary: the sentences most central to the document.
+
+        Centrality is lexical overlap with the document's own vocabulary, so
+        the sentences that share the most language with everything else win.
+        Crude, but it selects real sentences from the source rather than
+        generating text, which is the only honest thing an offline stand-in can
+        do. Source order is preserved so the result still reads as prose.
+        """
+        text: str = context.get("text", "")
+        max_sentences = int(context.get("max_sentences", 4))
+        max_points = int(context.get("max_points", 5))
+
+        candidates = [(offset, s) for offset, s in sentences(text) if len(s.split()) >= 6]
+        if not candidates:
+            return "The document does not contain enough text to summarise."
+
+        vocabulary = tokenize(text)
+        ranked = sorted(
+            candidates,
+            key=lambda item: overlap_score(vocabulary, item[1]),
+            reverse=True,
+        )
+
+        chosen = sorted(ranked[:max_sentences], key=lambda item: item[0])
+        summary = " ".join(s for _offset, s in chosen)
+
+        points = [s for _offset, s in sorted(ranked[:max_points], key=lambda i: i[0])]
+        bullets = "\n".join(f"- {p}" for p in points)
+
+        return f"{summary}\n\n{bullets}" if bullets else summary
 
     def _task_extract(self, _context: dict[str, Any]) -> str:
         # The regex engine has already produced every field it can find, and the

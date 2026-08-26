@@ -7,6 +7,8 @@ demo stalls. Failing fast is the feature being tested here.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from app.errors import (
@@ -199,3 +201,92 @@ def test_backoff_is_bounded_and_jittered():
 def test_backoff_grows_with_attempt_number():
     ceilings = [max(backoff_delay(n, base=0.5, cap=100.0) for _ in range(200)) for n in (0, 4)]
     assert ceilings[1] > ceilings[0]
+
+
+# --------------------------------------------------------------------------
+# Total deadline
+# --------------------------------------------------------------------------
+def test_deadline_stops_retrying_even_with_budget_left():
+    """Regression, measured 2026-08-26.
+
+    A single /answer took 241 seconds: max_retries=3 with a 60 s socket timeout
+    is a four-minute worst case, and a per-attempt timeout does not bound a
+    retrying call. That blocks a worker thread and backs the queue up behind it.
+    """
+    breaker = CircuitBreaker(threshold=100, reset_after_s=60)
+    clock = FakeClock()
+    calls = {"n": 0}
+
+    def slow_and_failing():
+        calls["n"] += 1
+        clock.advance(20.0)  # each attempt burns 20 s
+        raise ProviderUnavailableError("slow")
+
+    with pytest.raises(ProviderUnavailableError):
+        call_with_resilience(
+            slow_and_failing,
+            breaker=breaker,
+            max_retries=10,
+            base_delay_s=0.01,
+            max_delay_s=0.02,
+            timeout_s=20.0,
+            deadline_s=45.0,
+            operation="test",
+            sleep=_no_sleep,
+            clock=clock,
+        )
+
+    # 20 s + 20 s puts the clock at 40 s (still inside the 45 s budget, so a
+    # third attempt starts), and that attempt ends at 60 s. The fourth is
+    # refused. Without the deadline this would have run all 11 attempts and
+    # burned 220 seconds.
+    assert calls["n"] == 3
+
+
+def test_no_deadline_keeps_the_old_behaviour():
+    """deadline_s is optional - omitting it must not change anything."""
+    breaker = CircuitBreaker(threshold=100, reset_after_s=60)
+    calls = {"n": 0}
+
+    def always_fails():
+        calls["n"] += 1
+        raise ProviderUnavailableError("down")
+
+    with pytest.raises(ProviderUnavailableError):
+        call_with_resilience(
+            always_fails,
+            breaker=breaker,
+            max_retries=2,
+            base_delay_s=0.01,
+            max_delay_s=0.02,
+            timeout_s=1.0,
+            operation="test",
+            sleep=_no_sleep,
+        )
+
+    assert calls["n"] == 3
+
+
+def test_deadline_already_exceeded_stops_after_one_attempt():
+    breaker = CircuitBreaker(threshold=100, reset_after_s=60)
+    calls = {"n": 0}
+
+    def slow_failure():
+        calls["n"] += 1
+        time.sleep(0.05)
+        raise ProviderUnavailableError("slow")
+
+    with pytest.raises(ProviderUnavailableError):
+        call_with_resilience(
+            slow_failure,
+            breaker=breaker,
+            max_retries=5,
+            base_delay_s=0.001,
+            max_delay_s=0.002,
+            timeout_s=1.0,
+            deadline_s=0.01,  # already blown by the first attempt
+            operation="test",
+            sleep=_no_sleep,
+        )
+
+    assert calls["n"] == 1

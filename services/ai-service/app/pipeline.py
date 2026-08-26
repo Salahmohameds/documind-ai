@@ -120,6 +120,7 @@ def chat(
             base_delay_s=settings.retry_base_delay_s,
             max_delay_s=settings.retry_max_delay_s,
             timeout_s=settings.request_timeout_s,
+            deadline_s=settings.request_deadline_s,
             operation=f"chat:{task}",
         )
     except Exception:
@@ -156,6 +157,7 @@ def embed(texts: list[str], *, input_type: str, endpoint: str) -> CallOutcome:
             base_delay_s=settings.retry_base_delay_s,
             max_delay_s=settings.retry_max_delay_s,
             timeout_s=settings.request_timeout_s,
+            deadline_s=settings.request_deadline_s,
             operation="embed",
         )
     except Exception:

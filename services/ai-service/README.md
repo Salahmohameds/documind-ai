@@ -62,10 +62,33 @@ not a stub**:
 `run_evaluation.py` does the same for `EMBEDDING_BACKEND=mock`. Enforced in code,
 not in a README, because a README does not survive a deadline.
 
-Measured on the mock backend for reference only — *these are not results*:
-citation page accuracy 70 %, refusal precision 12.5 %. The refusal number is
-the honest one: the mock answers seven of eight questions the corpus cannot
-answer. That is the gap a real model closes.
+### Measured results
+
+`tests/rag-evaluation/evaluate_generation.py`, 20 answerable + 8 unanswerable
+questions over the full sample corpus (both documents passed as context, which
+is harder than production where search-service pre-filters):
+
+| Metric | mock | Gemini `gemini-flash-lite-latest` |
+|---|---|---|
+| Citation page accuracy | 70 % | **100 %** |
+| Citation doc accuracy | 70 % | **100 %** |
+| Grounded rate | 100 % | **100 %** |
+| Unsupported rate | 0 % | **0 %** |
+| **Refusal precision** | **12.5 %** | **100 %** |
+| Answer F1 | 0.358 | **0.647** |
+
+Run 2026-08-26. The mock column is a **plumbing check, not a result** — the
+harness refuses to write a results file for it.
+
+Refusal precision is the number that matters. The mock invented answers to
+seven of eight questions the corpus cannot answer, because word-matching always
+finds *some* overlapping sentence. A real model declined all eight. That single
+column is the difference between a demo and a system you would let someone
+rely on.
+
+Answer F1 of 0.647 is expected and fine: it is blunt token overlap against one
+reference phrasing, so a correct answer worded differently is penalised. Read
+it alongside citation accuracy, never alone.
 
 ---
 
@@ -74,10 +97,11 @@ answer. That is the gap a real model closes.
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/embed` | Batch text → vectors (role 6 consumes this) |
-| POST | `/classify` | invoice · contract · receipt · report · unknown |
+| POST | `/classify` | invoice · contract · unknown (matches the DB CHECK) |
 | POST | `/extract` | Structured fields with source-anchored evidence |
 | POST | `/analysis/risk` | Deterministic risk score + model-written explanation |
 | POST | `/answer` | RAG generation with page-level citations |
+| POST | `/summarize` | Prose summary + key points |
 | POST | `/pii` | PII detection / redaction |
 | GET | `/liveness` | Process alive. Never touches the provider. |
 | GET | `/readiness` | Provider reachable and circuit closed, else 503 |
@@ -135,8 +159,44 @@ MODEL_NAME=mock-chat-v1
 EMBEDDING_MODEL=mock-embed-v1
 EMBEDDING_DIM=384            # must match the pgvector column
 TOKEN_BUDGET_PER_REQUEST=8000
-REQUEST_TIMEOUT_S=30
+REQUEST_TIMEOUT_S=30         # per attempt
+REQUEST_DEADLINE_S=45        # total, retries included
 ```
+
+### Running against Gemini (the ADR-006 fallback)
+
+```bash
+AI_BACKEND=openai_compat
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+OPENAI_API_KEY=<from a K8s Secret, never committed>
+MODEL_NAME=gemini-flash-lite-latest
+MODEL_FALLBACKS=gemini-3.1-flash-lite
+```
+
+Use the `-latest` aliases. Pinned versions go stale: `gemini-2.5-flash` returns
+404 with *"no longer available to new users"*.
+
+Check that the model is not a reasoning model. `gemini-flash-latest` answered
+"say OK" in **62 seconds** and spent the token budget on hidden thinking tokens;
+`gemini-flash-lite-latest` does the same job in 0.8 s.
+
+**`MODEL_FALLBACKS` matters on free tiers.** Rate limits are per model, so
+rotating buys headroom that retrying cannot. Measured on Google AI Studio's free
+tier, 2026-08-26:
+
+| Model | RPM | RPD |
+|---|---|---|
+| Gemini 3.5 Flash Lite (`gemini-flash-lite-latest`) | 15 | 500 |
+| Gemini 3.1 Flash Lite | 15 | 500 |
+| Gemini 3.7 Flash | 5 | 20 |
+| Gemini 3 Flash | 5 | 20 |
+
+Two Flash-Lite models give 30 RPM / 1000 RPD for one config line. The Flash
+models are near-useless as fallbacks at 20 requests per **day**.
+
+This is a free-tier workaround, not an architecture. It is enough to run an
+evaluation; it will not survive a k6 load test — which remains the strongest
+practical argument for the OCI path.
 
 ### Switching to OCI Generative AI (once D1 closes)
 

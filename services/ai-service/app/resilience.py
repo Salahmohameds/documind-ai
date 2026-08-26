@@ -126,6 +126,8 @@ def call_with_resilience(
     timeout_s: float,
     operation: str = "provider_call",
     sleep: Callable[[float], None] = time.sleep,
+    deadline_s: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> T:
     """Run ``fn`` under the breaker with bounded retries.
 
@@ -137,6 +139,13 @@ def call_with_resilience(
     value as their socket timeout, which is where enforcement actually happens.
     It is passed here to be logged, so a slow call and a hard timeout are
     distinguishable in the logs.
+
+    ``deadline_s`` caps the **total** wall clock for the whole call, retries and
+    backoff included. Without it the real worst case is
+    ``(max_retries + 1) x timeout_s`` - measured at 241 seconds for a single
+    question against a slow provider on 2026-08-26, which blocks a worker
+    thread for four minutes and backs the queue up behind it. A per-attempt
+    timeout alone does not bound a retrying call.
     """
     if not breaker.allow():
         raise CircuitOpenError(
@@ -144,8 +153,24 @@ def call_with_resilience(
         )
 
     last_error: Exception | None = None
+    call_started = clock()
+
+    def out_of_time() -> bool:
+        return deadline_s is not None and (clock() - call_started) >= deadline_s
 
     for attempt in range(max_retries + 1):
+        if attempt and out_of_time():
+            logger.warning(
+                "provider_call_deadline_exceeded",
+                extra={
+                    "event": "provider_call_deadline_exceeded",
+                    "operation": operation,
+                    "attempt": attempt,
+                    "deadline_s": deadline_s,
+                    "elapsed_ms": int((clock() - call_started) * 1000),
+                },
+            )
+            break
         started = time.monotonic()
         try:
             result = fn()
@@ -170,6 +195,11 @@ def call_with_resilience(
             if attempt >= max_retries:
                 break
             delay = backoff_delay(attempt, base_delay_s, max_delay_s)
+            if deadline_s is not None:
+                remaining = deadline_s - (clock() - call_started)
+                if remaining <= 0:
+                    break
+                delay = min(delay, remaining)
             logger.warning(
                 "provider_call_retry",
                 extra={

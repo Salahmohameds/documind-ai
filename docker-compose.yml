@@ -35,24 +35,23 @@ services:
     build:
       context: ./services/ai-service
     container_name: documind-ai-service
+    # Provider configuration comes from services/ai-service/.env, which is
+    # gitignored and holds the API key. The same file is read by `uvicorn` when
+    # running the service directly, so local and compose behave identically.
+    #
+    # With no .env present the service falls back to its own defaults, which are
+    # AI_BACKEND=mock - it starts and serves every endpoint offline with no
+    # credential. See services/ai-service/.env.example for the shape.
+    env_file:
+      - path: ./services/ai-service/.env
+        required: false
     environment:
+      # Fixed by the container layout. Deliberately NOT duplicating anything
+      # .env sets: compose's `environment` overrides `env_file`, so a default
+      # here would make the .env value unreachable.
       PORT: 8080
       SERVICE_NAME: ai-service
       LOG_LEVEL: INFO
-      # mock is the default on purpose: the service must start, serve every
-      # endpoint and pass its tests with no OCI credential and no network.
-      # See services/ai-service/README.md and ADR-006.
-      AI_BACKEND: mock
-      MODEL_NAME: mock-chat-v1
-      EMBEDDING_MODEL: mock-embed-v1
-      # Must match the vector(N) column in database/schema.sql.
-      EMBEDDING_DIM: 384
-      TEMPERATURE: "0.0"
-      MAX_TOKENS: 1024
-      REQUEST_TIMEOUT_S: "30"
-      MAX_RETRIES: 3
-      TOKEN_BUDGET_PER_REQUEST: 8000
-      MAX_EMBED_BATCH: 96
       PROMPTS_DIR: app/prompts
     ports:
       - "8081:8080"

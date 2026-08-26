@@ -37,6 +37,7 @@ RULES_VERSION = "risk-1.0"
 CALIBRATION_MAX = 60
 
 Severity = Literal["low", "medium", "high"]
+Category = Literal["financial", "legal", "operational"]
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,9 @@ class Rule:
     weight: int
     #: Regex that identifies the clause.
     pattern: str
+    #: Which risk_assessments column this rule feeds. Fixed per rule, so the
+    #: per-category bands are as auditable as the headline score.
+    category: Category = "legal"
     #: When True the rule fires because the pattern is ABSENT.
     absence: bool = False
     #: Optional guard: an absence rule only applies if this pattern IS present
@@ -66,6 +70,7 @@ RULES: tuple[Rule, ...] = (
         "medium",
         10,
         r"automatic(ally)?\s+renew|auto[- ]?renew|successive\s+(one|1)[- ]year\s+terms",
+        category="operational",
     ),
     Rule(
         "R02",
@@ -83,6 +88,7 @@ RULES: tuple[Rule, ...] = (
         r"|not\s+be\s+liable\s+for\s+(?:any\s+)?(?:indirect|incidental|consequential)",
         absence=True,
         applies_if=r"\bagreement\b|\bparties\b|\bshall\b",
+        category="legal",
     ),
     Rule(
         "R03",
@@ -91,6 +97,7 @@ RULES: tuple[Rule, ...] = (
         8,
         r"cure\s+(period\s+of\s+)?(within\s+)?(one|two|three|four|five|six|seven|"
         r"eight|nine|ten|[1-9]|10)\s+(business\s+)?days",
+        category="operational",
     ),
     Rule(
         "R04",
@@ -99,6 +106,7 @@ RULES: tuple[Rule, ...] = (
         8,
         r"terminat\w*\s+(this\s+\w+\s+)?for\s+convenience|"
         r"terminat\w*\s+at\s+any\s+time\s+(for\s+any\s+reason|without\s+cause)",
+        category="operational",
     ),
     Rule(
         "R05",
@@ -108,6 +116,7 @@ RULES: tuple[Rule, ...] = (
         # Anything beyond net-60 is a working-capital cost worth flagging.
         r"(?:net\s*|within\s+)(\d+)\s*days?",
         min_value=61,
+        category="financial",
     ),
     Rule(
         "R06",
@@ -118,6 +127,7 @@ RULES: tuple[Rule, ...] = (
         # stops the digit after a decimal point being read as the whole rate.
         r"(?<![\d.])(\d+(?:\.\d+)?)\s*%\s*(?:per\s+month|monthly)",
         min_value=2.0,
+        category="financial",
     ),
     Rule(
         "R07",
@@ -127,6 +137,7 @@ RULES: tuple[Rule, ...] = (
         r"governing\s+law|shall\s+be\s+governed\s+by|jurisdiction\s+of",
         absence=True,
         applies_if=r"\bagreement\b|\bparties\b",
+        category="legal",
     ),
     Rule(
         "R08",
@@ -134,6 +145,7 @@ RULES: tuple[Rule, ...] = (
         "high",
         15,
         r"indemnif(y|ies|ication)",
+        category="legal",
     ),
     Rule(
         "R09",
@@ -143,6 +155,7 @@ RULES: tuple[Rule, ...] = (
         r"confidential(ity)?|non[- ]disclosure",
         absence=True,
         applies_if=r"\bagreement\b|\bparties\b",
+        category="legal",
     ),
     Rule(
         "R10",
@@ -152,6 +165,7 @@ RULES: tuple[Rule, ...] = (
         r"terminat(e|ion)",
         absence=True,
         applies_if=r"\bagreement\b|\bparties\b",
+        category="operational",
     ),
     Rule(
         "R11",
@@ -160,6 +174,7 @@ RULES: tuple[Rule, ...] = (
         8,
         r"assigns?\s+all\s+right,?\s+title\s+and\s+interest|"
         r"work\s+made\s+for\s+hire",
+        category="legal",
     ),
     Rule(
         "R12",
@@ -167,6 +182,7 @@ RULES: tuple[Rule, ...] = (
         "medium",
         8,
         r"non[- ]compet\w*|shall\s+not\s+(directly\s+or\s+indirectly\s+)?compete",
+        category="operational",
     ),
     Rule(
         "R13",
@@ -174,6 +190,7 @@ RULES: tuple[Rule, ...] = (
         "high",
         12,
         r"may\s+(amend|modify|change)\s+.{0,60}(sole\s+discretion|at\s+any\s+time)",
+        category="legal",
     ),
     Rule(
         "R14",
@@ -183,6 +200,7 @@ RULES: tuple[Rule, ...] = (
         r"data\s+protection|personal\s+data|gdpr|privacy\s+polic",
         absence=True,
         applies_if=r"\bagreement\b|\bparties\b",
+        category="legal",
     ),
     Rule(
         "R15",
@@ -190,6 +208,7 @@ RULES: tuple[Rule, ...] = (
         "medium",
         8,
         r"liquidated\s+damages|penalt(y|ies)\s+of",
+        category="financial",
     ),
 )
 
@@ -210,6 +229,7 @@ class Finding:
     title: str
     severity: Severity
     weight: int
+    category: Category
     snippet: str | None
     offset: int | None
 
@@ -224,6 +244,7 @@ class RiskResult:
     rules_evaluated: int
     rules_fired: int
     rules_version: str
+    categories: dict[str, str]
 
 
 def _first_match_over(pattern: re.Pattern[str], text: str, threshold: float) -> re.Match[str] | None:
@@ -238,6 +259,25 @@ def _first_match_over(pattern: re.Pattern[str], text: str, threshold: float) -> 
         except ValueError:
             continue
     return None
+
+
+def category_bands(findings: list[Finding]) -> dict[str, str]:
+    """Band each risk_assessments category from the rules that fired.
+
+    Highest severity wins rather than a weighted sum: the columns are
+    Low|Medium|High, and "one high-severity legal finding" is exactly what a
+    reviewer means by high legal risk. Summing weights would let three low
+    findings outrank a single uncapped-indemnity clause, which is wrong.
+
+    A category with nothing against it is "low", not "unknown" - every rule in
+    that category was evaluated and none matched.
+    """
+    order = {"low": 0, "medium": 1, "high": 2}
+    worst = {"financial": "low", "legal": "low", "operational": "low"}
+    for finding in findings:
+        if order[finding.severity] > order[worst[finding.category]]:
+            worst[finding.category] = finding.severity
+    return worst
 
 
 def band_for(score: int) -> Literal["low", "medium", "high"]:
@@ -274,6 +314,7 @@ def score_document(text: str) -> RiskResult:
                     title=rule.title,
                     severity=rule.severity,
                     weight=rule.weight,
+                    category=rule.category,
                     snippet=None,  # nothing to quote: the point is the absence
                     offset=None,
                 )
@@ -286,6 +327,7 @@ def score_document(text: str) -> RiskResult:
                     title=rule.title,
                     severity=rule.severity,
                     weight=rule.weight,
+                    category=rule.category,
                     snippet=snippet(text, max(0, match.start() - 40), 240),
                     offset=match.start(),
                 )
@@ -305,4 +347,5 @@ def score_document(text: str) -> RiskResult:
         rules_evaluated=len(RULES),
         rules_fired=len(findings),
         rules_version=RULES_VERSION,
+        categories=category_bands(findings),
     )

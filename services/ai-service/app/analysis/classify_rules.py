@@ -76,6 +76,13 @@ _COMPILED: dict[str, list[tuple[re.Pattern[str], int]]] = {
 #: Below this raw score the document is 'unknown' rather than a bad guess.
 MIN_CONFIDENT_SCORE = 5
 
+#: Labels the API may return, constrained by the CHECK on documents.document_type.
+#: 'receipt' and 'report' are still scored - they are useful evidence for why
+#: something is unknown - but they are not storable labels, so a document that
+#: looks like a receipt is reported as unknown with the near-miss named in the
+#: rationale. Inventing a label the schema rejects would fail on insert.
+STORABLE_LABELS = frozenset({"invoice", "contract", "unknown"})
+
 RULES_VERSION = "classify-1.0"
 
 
@@ -115,12 +122,23 @@ def classify(text: str) -> tuple[str, float, dict[str, float], str]:
             f"minimum {MIN_CONFIDENT_SCORE}).",
         )
 
-    scores = {k: (v / total if total else 0.0) for k, v in raw.items()}
-    confidence = scores[best_label]
-
+    scores = {k: round(v / total if total else 0.0, 4) for k, v in raw.items()}
     evidence = "; ".join(hits[best_label][:3]) or "no quotable span"
+
+    if best_label not in STORABLE_LABELS:
+        # A confident receipt or report is still an unsupported document type.
+        # Say so, and name what it looked like, rather than forcing it into
+        # 'invoice' - which would send the wrong field set to /extract.
+        return (
+            "unknown",
+            0.0,
+            scores,
+            f"Closest match was '{best_label}' ({best_raw} weighted points), "
+            "which is not a supported document type. Evidence: " + evidence,
+        )
+
     rationale = (
         f"Matched {len(hits[best_label])} '{best_label}' signals "
         f"({best_raw} weighted points). Evidence: {evidence}"
     )
-    return best_label, round(confidence, 4), {k: round(v, 4) for k, v in scores.items()}, rationale
+    return best_label, round(scores[best_label], 4), scores, rationale

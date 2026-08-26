@@ -30,7 +30,13 @@ from typing import Any
 import httpx
 
 from app.adapters.base import AIProvider, ChatMessage, ChatResult, EmbedResult, estimate_tokens
-from app.errors import ProviderConfigurationError, ProviderUnavailableError
+from app.adapters.rotation import ModelRotation
+from app.errors import (
+    ProviderConfigurationError,
+    ProviderRateLimitedError,
+    ProviderUnavailableError,
+)
+from app.metrics import MODEL_ROTATIONS
 
 logger = logging.getLogger("ai-service")
 
@@ -48,6 +54,8 @@ class OpenAICompatProvider(AIProvider):
         embedding_model: str,
         embedding_dim: int,
         timeout_s: float,
+        model_chain: list[str] | None = None,
+        model_cooldown_s: float = 60.0,
     ) -> None:
         if not base_url:
             raise ProviderConfigurationError(
@@ -65,6 +73,15 @@ class OpenAICompatProvider(AIProvider):
         self._embed_model = embedding_model
         self._dim = embedding_dim
         self._timeout_s = timeout_s
+
+        # Chat models rotate on rate limits. Embedding models deliberately do
+        # NOT: two embedding models produce vectors in different spaces, so
+        # silently failing over would poison the index with vectors that cannot
+        # be compared to the ones already stored. A rate-limited embedding call
+        # must fail loudly and be retried, never substituted.
+        self._rotation = ModelRotation(
+            model_chain or [model_name], cooldown_s=model_cooldown_s
+        )
 
         # One pooled client for the process lifetime. httpx.Client is
         # thread-safe, which matters because FastAPI runs sync routes in a
@@ -101,23 +118,69 @@ class OpenAICompatProvider(AIProvider):
         task: str = "generic",
         context: dict[str, Any] | None = None,
     ) -> ChatResult:
-        payload = {
-            "model": self._chat_model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
+        body = [{"role": m.role, "content": m.content} for m in messages]
+        candidates = self._rotation.candidates()
+        limited: list[str] = []
+        data: dict[str, Any] | None = None
+        used = self._chat_model
 
-        try:
-            response = self._client.post("/chat/completions", json=payload)
-            response.raise_for_status()
+        for model in candidates:
+            payload = {
+                "model": model,
+                "messages": body,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            try:
+                response = self._client.post("/chat/completions", json=payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status == 429:
+                    # Per-model quota. Park it and try the next one - retrying
+                    # this model harder cannot succeed.
+                    self._rotation.mark_limited(model)
+                    limited.append(model)
+                    MODEL_ROTATIONS.labels(provider=self.name, model=model).inc()
+                    logger.warning(
+                        "model_rate_limited",
+                        extra={
+                            "event": "model_rate_limited",
+                            "provider": self.name,
+                            "model": model,
+                            "remaining_candidates": len(candidates) - len(limited),
+                        },
+                    )
+                    continue
+                raise ProviderUnavailableError(
+                    f"OpenAI-compatible chat returned {status} for model {model}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise ProviderUnavailableError(
+                    f"OpenAI-compatible chat failed: {exc}"
+                ) from exc
+
             data = response.json()
-        except httpx.HTTPStatusError as exc:
-            raise ProviderUnavailableError(
-                f"OpenAI-compatible chat returned {exc.response.status_code}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise ProviderUnavailableError(f"OpenAI-compatible chat failed: {exc}") from exc
+            used = model
+            self._rotation.clear(model)
+            if limited:
+                logger.info(
+                    "model_rotation_recovered",
+                    extra={
+                        "event": "model_rotation_recovered",
+                        "served_by": model,
+                        "skipped": limited,
+                    },
+                )
+            break
+
+        if data is None:
+            raise ProviderRateLimitedError(
+                "Every model in the rotation is rate limited: "
+                f"{', '.join(limited) or 'none configured'}. "
+                "Add more models to MODEL_FALLBACKS, wait for the quota window "
+                "to reset, or move to a provider with real capacity."
+            )
 
         choices = data.get("choices") or []
         text = (choices[0].get("message", {}).get("content") if choices else "") or ""
@@ -132,7 +195,7 @@ class OpenAICompatProvider(AIProvider):
 
         return ChatResult(
             text=text,
-            model=data.get("model", self._chat_model),
+            model=data.get("model", used),
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             estimated=not reported,
@@ -149,6 +212,15 @@ class OpenAICompatProvider(AIProvider):
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                # Deliberately NOT rotated. See the constructor: substituting a
+                # different embedding model would write vectors into a space
+                # that cannot be compared with what is already indexed.
+                raise ProviderRateLimitedError(
+                    f"Embedding model {self._embed_model} is rate limited. "
+                    "Embedding models are never rotated - retry after the quota "
+                    "window resets, or reduce the batch rate."
+                ) from exc
             raise ProviderUnavailableError(
                 f"OpenAI-compatible embed returned {exc.response.status_code}"
             ) from exc
@@ -179,10 +251,26 @@ class OpenAICompatProvider(AIProvider):
 
     # -- readiness --------------------------------------------------------
     def probe(self) -> bool:
-        """GET /models - cheap and non-billable on every compatible server."""
+        """GET /models - cheap and non-billable on every compatible server.
+
+        Only 2xx counts as ready. An earlier version accepted anything under
+        500, which meant an expired or wrong API key (401) reported the pod as
+        ready to serve traffic it could not possibly serve - a health check
+        that lies is worse than no health check.
+        """
         try:
             response = self._client.get("/models", timeout=5.0)
-            return response.status_code < 500
+            if response.status_code >= 400:
+                logger.warning(
+                    "provider_probe_rejected",
+                    extra={
+                        "provider": self.name,
+                        "status": response.status_code,
+                        "hint": "401/403 means the API key is wrong or expired",
+                    },
+                )
+                return False
+            return True
         except httpx.HTTPError as exc:
             logger.warning(
                 "provider_probe_failed",

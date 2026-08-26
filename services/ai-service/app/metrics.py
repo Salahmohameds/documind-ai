@@ -50,6 +50,12 @@ PROVIDER_CALLS = Counter(
     ["provider", "operation", "outcome"],
 )
 
+MODEL_ROTATIONS = Counter(
+    "documind_ai_model_rotations_total",
+    "Times a model was parked for rate limiting and the next one was tried.",
+    ["provider", "model"],
+)
+
 CIRCUIT_STATE = Gauge(
     "documind_ai_circuit_breaker_state",
     "Circuit breaker state: 0=closed, 1=half_open, 2=open.",

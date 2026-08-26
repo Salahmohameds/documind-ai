@@ -40,6 +40,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -139,14 +140,30 @@ def f1(predicted: str, reference: str) -> float:
 # Service client
 # --------------------------------------------------------------------------
 def post(url: str, payload: dict, timeout: float = 60.0) -> dict:
+    """POST and return the body, or an ``{"_error": ...}`` marker.
+
+    Never raises. A rate-limited or failed question must cost you that one
+    question, not the other 27 — the first version of this crashed the whole
+    run on a single 503 and threw away every result already collected.
+    """
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            detail = body.get("code") or body.get("detail") or str(exc)
+        except Exception:
+            detail = f"HTTP {exc.code}"
+        return {"_error": detail}
+    except (urllib.error.URLError, OSError) as exc:
+        return {"_error": str(exc)}
 
 
 def get(url: str, timeout: float = 10.0) -> dict:
@@ -157,15 +174,36 @@ def get(url: str, timeout: float = 10.0) -> dict:
 # --------------------------------------------------------------------------
 # Evaluation
 # --------------------------------------------------------------------------
-def evaluate(base_url: str, answerable: list[dict], unanswerable: list[dict]) -> dict:
+def evaluate(
+    base_url: str,
+    answerable: list[dict],
+    unanswerable: list[dict],
+    delay_s: float = 0.0,
+) -> dict:
     chunks = load_corpus()
     rows: list[dict[str, Any]] = []
 
     doc_hits = page_hits = grounded = unsupported = refused = 0
+    errors = 0
     f1_total = 0.0
 
     for case in answerable:
+        if delay_s:
+            time.sleep(delay_s)
         body = post(f"{base_url}/answer", {"question": case["question"], "chunks": chunks})
+
+        if "_error" in body:
+            errors += 1
+            rows.append(
+                {
+                    "id": case["id"],
+                    "kind": "answerable",
+                    "question": case["question"],
+                    "error": body["_error"],
+                }
+            )
+            continue
+
         cited = [(c.get("document_id"), c.get("page")) for c in body.get("citations", [])]
 
         doc_hit = any(d == case["expected_document"] for d, _p in cited)
@@ -198,7 +236,22 @@ def evaluate(base_url: str, answerable: list[dict], unanswerable: list[dict]) ->
 
     correct_refusals = 0
     for case in unanswerable:
+        if delay_s:
+            time.sleep(delay_s)
         body = post(f"{base_url}/answer", {"question": case["question"], "chunks": chunks})
+
+        if "_error" in body:
+            errors += 1
+            rows.append(
+                {
+                    "id": case["id"],
+                    "kind": "unanswerable",
+                    "question": case["question"],
+                    "error": body["_error"],
+                }
+            )
+            continue
+
         is_refusal = bool(body.get("refused")) or REFUSAL_MARKER in body.get("answer", "").lower()
         correct_refusals += is_refusal
         refused += is_refusal
@@ -214,12 +267,20 @@ def evaluate(base_url: str, answerable: list[dict], unanswerable: list[dict]) ->
             }
         )
 
-    n_answerable = len(answerable) or 1
-    n_unanswerable = len(unanswerable) or 1
+    # Denominators exclude questions that errored: a rate-limited question was
+    # never answered, so scoring it as a miss would understate the model and
+    # quietly turn an infrastructure problem into a quality number.
+    scored_answerable = sum(1 for r in rows if r["kind"] == "answerable" and "error" not in r)
+    scored_unanswerable = sum(1 for r in rows if r["kind"] == "unanswerable" and "error" not in r)
+    n_answerable = scored_answerable or 1
+    n_unanswerable = scored_unanswerable or 1
 
     return {
         "answerable_questions": len(answerable),
         "unanswerable_questions": len(unanswerable),
+        "scored_answerable": scored_answerable,
+        "scored_unanswerable": scored_unanswerable,
+        "errors": errors,
         "citation_doc_accuracy": round(doc_hits / n_answerable, 3),
         "citation_page_accuracy": round(page_hits / n_answerable, 3),
         "answer_f1": round(f1_total / n_answerable, 3),
@@ -242,6 +303,13 @@ def main() -> int:
         "--allow-mock",
         action="store_true",
         help="Run against the mock backend for a smoke test. Results are NOT reportable.",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.5,
+        help="Seconds between questions. Free provider tiers rate-limit hard; "
+             "0 for a paid endpoint.",
     )
     parser.add_argument("--out", default=os.path.join(HERE, "generation_results.json"))
     args = parser.parse_args()
@@ -279,14 +347,16 @@ def main() -> int:
         else []
     )
 
-    report = evaluate(base_url, answerable, unanswerable)
+    report = evaluate(base_url, answerable, unanswerable, delay_s=args.delay)
     report["backend"] = backend
     report["model"] = model
     report["reportable"] = backend != "mock"
 
     print()
     print(f"=== RAG Generation Evaluation (backend={backend}, model={model}) ===")
-    print(f"Answerable questions:    {report['answerable_questions']}")
+    print(f"Answerable questions:    {report['answerable_questions']} (scored {report['scored_answerable']})")
+    if report["errors"]:
+        print(f"Questions that ERRORED:  {report['errors']} (excluded from every rate below)")
     print(f"Unanswerable questions:  {report['unanswerable_questions']}")
     print(f"Citation doc accuracy:   {report['citation_doc_accuracy'] * 100:.1f}%")
     print(f"Citation page accuracy:  {report['citation_page_accuracy'] * 100:.1f}%")

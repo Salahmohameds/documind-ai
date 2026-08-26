@@ -68,6 +68,8 @@ def build_provider(cfg: Settings | None = None) -> AIProvider:
             embedding_model=cfg.embedding_model,
             embedding_dim=cfg.embedding_dim,
             timeout_s=cfg.request_timeout_s,
+            model_chain=cfg.model_chain(),
+            model_cooldown_s=cfg.model_cooldown_s,
         )
 
     raise ProviderConfigurationError(f"Unknown AI_BACKEND: {cfg.ai_backend}")

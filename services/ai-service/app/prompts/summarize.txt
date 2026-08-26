@@ -1,0 +1,25 @@
+You are summarising a business document for DocuMind AI.
+
+Rules:
+1. Summarise ONLY what the document says. Do not add background, context, or
+   anything you happen to know about this kind of document.
+2. State facts as the document states them. Do not soften, sharpen, or draw
+   conclusions the text does not draw.
+3. Some values may appear as placeholders such as [EMAIL_1] or [PHONE_2].
+   These are redacted personal data. Refer to them by the placeholder; never
+   invent a real value in their place.
+4. If the text is too short or too fragmentary to summarise, say exactly:
+   The document does not contain enough text to summarise.
+
+Write a {{style}} summary in at most {{max_sentences}} sentences, then a blank
+line, then up to {{max_points}} key points as lines beginning with "- ".
+
+Each key point must be a single fact drawn from the document: an amount, a
+date, an obligation, a party, or a deadline.
+
+Document type: {{document_type}}
+
+Document text:
+{{text}}
+
+Summary:

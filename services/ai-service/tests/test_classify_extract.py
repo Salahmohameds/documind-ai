@@ -143,3 +143,38 @@ def test_verify_against_source_tolerates_reflowed_whitespace():
         "total liability shall not exceed", text
     )
     assert found is True
+
+
+# --------------------------------------------------------------------------
+# Label set vs the database CHECK constraint
+# --------------------------------------------------------------------------
+def test_labels_are_limited_to_what_the_schema_can_store(client, contract_text, invoice_text):
+    """documents.document_type CHECK IN ('INVOICE','CONTRACT','UNKNOWN').
+
+    Returning 'receipt' would have thrown a constraint violation the first time
+    role 5 persisted a classification.
+    """
+    for text in (contract_text, invoice_text, "asdf qwer zxcv"):
+        label = client.post("/classify", json={"text": text}).json()["label"]
+        assert label in {"invoice", "contract", "unknown"}
+
+
+def test_receipt_is_unknown_with_the_near_miss_named(client):
+    """A confident receipt is still an unsupported type - say so, don't guess."""
+    receipt = (
+        "RECEIPT\nMerchant: Corner Shop\nCashier: 04\nTransaction ID: TX-99\n"
+        "Card ending 4242\nChange due: 5.00\nThank you for your purchase"
+    )
+    body = client.post("/classify", json={"text": receipt}).json()
+
+    assert body["label"] == "unknown"
+    assert "receipt" in body["rationale"].lower()
+
+
+def test_unsupported_type_extracts_no_fields(client):
+    """Better to return nothing than to run the invoice field set on a receipt."""
+    receipt = "RECEIPT\nMerchant: Corner Shop\nTransaction ID: TX-99\nCard ending 4242"
+    body = client.post("/extract", json={"text": receipt}).json()
+
+    assert body["document_type"] == "unknown"
+    assert body["fields"] == {}

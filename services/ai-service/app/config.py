@@ -61,8 +61,25 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_api_key: str = ""  # injected from a K8s Secret - never in git
 
+    # --- Model rotation -----------------------------------------------------
+    # Comma-separated models tried in order when the one before is rate
+    # limited. Rate limits are per model, so rotating buys real headroom that
+    # retrying the same model cannot. See app/adapters/rotation.py for the
+    # measured free-tier numbers behind the default ordering.
+    model_fallbacks: str = ""
+    model_cooldown_s: float = 60.0
+
+    def model_chain(self) -> list[str]:
+        """Primary model first, then any configured fallbacks."""
+        chain = [self.model_name]
+        chain.extend(part for part in self.model_fallbacks.split(",") if part.strip())
+        return chain
+
     # --- Resilience ---------------------------------------------------------
     request_timeout_s: float = 30.0
+    # Total wall clock for one request, retries and backoff included. Without
+    # this the worst case is (max_retries + 1) x request_timeout_s.
+    request_deadline_s: float = 45.0
     max_retries: int = 3
     retry_base_delay_s: float = 0.5
     retry_max_delay_s: float = 8.0

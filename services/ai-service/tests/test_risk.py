@@ -116,3 +116,45 @@ def test_explanation_can_be_skipped_without_losing_the_score(client, contract_te
 def test_explanation_does_not_restate_a_different_score(client, contract_text):
     body = client.post("/analysis/risk", json={"text": contract_text}).json()
     assert str(body["score"]) in body["explanation"]
+
+
+# --------------------------------------------------------------------------
+# Per-category bands (database/schema.sql: risk_assessments)
+# --------------------------------------------------------------------------
+def test_categories_match_the_database_columns(client, contract_text):
+    """risk_assessments stores financial/legal/operational as separate columns.
+
+    Returning only a single band would have left role 5 unable to populate the
+    table without inventing values.
+    """
+    body = client.post("/analysis/risk", json={"text": contract_text}).json()
+
+    assert set(body["categories"]) == {"financial", "legal", "operational"}
+    assert all(v in {"low", "medium", "high"} for v in body["categories"].values())
+
+
+def test_every_finding_carries_a_category(client, contract_text):
+    body = client.post("/analysis/risk", json={"text": contract_text}).json()
+    for finding in body["findings"]:
+        assert finding["category"] in {"financial", "legal", "operational"}
+
+
+def test_category_band_is_the_worst_severity_in_that_category():
+    """One uncapped-indemnity clause must outrank three minor findings."""
+    text = "This Agreement between the Parties. Provider shall indemnify Client."
+    result = risk_rules.score_document(text)
+
+    legal = [f for f in result.findings if f.category == "legal"]
+    assert any(f.severity == "high" for f in legal)
+    assert result.categories["legal"] == "high"
+
+
+def test_category_with_no_findings_is_low_not_unknown():
+    """Every rule in that category ran and none matched - that is 'low'."""
+    result = risk_rules.score_document("Invoice Number: INV-1024\nTotal: 15,000 EGP")
+    assert result.categories == {"financial": "low", "legal": "low", "operational": "low"}
+
+
+def test_every_rule_is_categorised():
+    for rule in risk_rules.RULES:
+        assert rule.category in {"financial", "legal", "operational"}

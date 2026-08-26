@@ -106,6 +106,7 @@ shorter and the worker gives up while ai-service is still usefully retrying.
 |---|---|---|---|
 | `ERR_PROVIDER_TIMEOUT` | 504 | yes | Provider exceeded `REQUEST_TIMEOUT_S`. |
 | `ERR_PROVIDER_UNAVAILABLE` | 503 | yes | Provider unreachable or erroring. |
+| `ERR_PROVIDER_RATE_LIMITED` | 429 | yes | **Every** model in the rotation is out of quota. Retryable, but only time helps — back off generously, do not re-queue immediately. |
 | `ERR_CIRCUIT_OPEN` | 503 | yes | Breaker open; not even attempted. Back off hard. |
 | `ERR_TOKEN_BUDGET_EXCEEDED` | 413 | **no** | Payload over `TOKEN_BUDGET_PER_REQUEST`. Split it. |
 | `ERR_BATCH_TOO_LARGE` | 413 | **no** | Over `MAX_EMBED_BATCH`. Send smaller batches. |
@@ -146,7 +147,7 @@ shorter and the worker gives up while ai-service is still usefully retrying.
 // response
 {
   "document_id": "…",
-  "label": "contract",              // invoice | contract | receipt | report | unknown
+  "label": "contract",              // invoice | contract | unknown
   "confidence": 0.73,
   "scores": { "invoice": 0.10, "contract": 0.73, "receipt": 0.17, "report": 0.0 },
   "rationale": "Matched 8 'contract' signals …",
@@ -154,10 +155,17 @@ shorter and the worker gives up while ai-service is still usefully retrying.
 }
 ```
 
+**`label` is one of three values**, matching the CHECK constraint on
+`documents.document_type` (`'INVOICE'`, `'CONTRACT'`, `'UNKNOWN'`). It is safe to
+write straight to the column after upper-casing.
+
+`scores` carries **four** keys — `receipt` and `report` are scored as diagnostic
+signals but are not storable labels. A document that looks like a receipt comes
+back as `unknown` with the near-miss named in `rationale`, rather than being
+forced into `invoice` and sent to `/extract` with the wrong field set.
+
 `scores` sum to 1.0 and expose the runner-up: a 0.51/0.49 split is very
 different from 0.95/0.05, and the caller should be able to see which it got.
-`"unknown"` is returned rather than a low-confidence guess, because a wrong
-label sends the wrong field set to `/extract`.
 
 ### `POST /extract`
 
@@ -201,6 +209,7 @@ Field sets: `invoice`, `contract`, `receipt` — see `app/analysis/extraction.py
     { "rule_id": "R01", "title": "Automatic renewal", "severity": "medium",
       "weight": 10, "evidence": { "snippet": "…automatically renew…", "offset": 1180 } }
   ],
+  "categories": { "financial": "low", "legal": "low", "operational": "medium" },
   "explanation": "…",
   "scoring": {
     "method": "deterministic-rules",
@@ -224,7 +233,44 @@ the same.
 is documented in `app/analysis/risk_rules.py`; changing it requires a
 `rules_version` bump so historical scores stay interpretable.
 
+`categories` maps directly onto the `risk_assessments` columns
+(`financial_risk`, `legal_risk`, `operational_risk`) — capitalise and insert.
+Each rule carries a fixed category, and a category's band is the **worst
+severity among the rules that fired in it**, not a weighted sum: one uncapped
+indemnity clause should outrank three minor findings. A category with nothing
+against it is `low` — every rule in it was evaluated and none matched.
+
 Set `explain: false` for load tests — full score, zero tokens.
+
+### `POST /summarize`
+
+```jsonc
+// request
+{ "text": "…", "document_type": "contract", "max_sentences": 4,
+  "max_points": 5, "style": "executive" }   // all but text optional
+// response
+{
+  "document_type": "contract",
+  "summary": "This Service Agreement is between Company A as Provider and …",
+  "key_points": [
+    "The agreement commences on 2026-01-01 and ends on 2026-12-31.",
+    "Late payments accrue interest at a rate of 1.5% per month."
+  ],
+  "insufficient_text": false,
+  "meta": { … }
+}
+```
+
+`summary` (prose) and `key_points` (facts) are split apart here so every caller
+does not have to parse bullets. `style` is `executive` or `technical`.
+
+`insufficient_text: true` means the document was too short or fragmentary to
+summarise — a correct outcome, not an error. Padding two lines into a paragraph
+would be inventing content.
+
+Unlike `/classify` and `/extract` this has no deterministic equivalent worth
+serving; on `AI_BACKEND=mock` it selects the most central real sentences rather
+than generating text.
 
 ### `POST /answer` → role 6 / role 3
 
@@ -306,7 +352,10 @@ will fail.
 | `OCI_COMPARTMENT_ID` | — | Compartments are global |
 | `OCI_AUTH_MODE` | `workload` | `workload` \| `instance` \| `config` (local dev only) |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` | — | Fallback only; key from a Secret |
-| `REQUEST_TIMEOUT_S` | `30` | |
+| `MODEL_FALLBACKS` | — | Comma-separated chat models tried when the one before is rate-limited. Chat only — embedding models are never rotated |
+| `MODEL_COOLDOWN_S` | `60` | How long a rate-limited model stays out of rotation |
+| `REQUEST_TIMEOUT_S` | `30` | Per-attempt socket timeout |
+| `REQUEST_DEADLINE_S` | `45` | **Total** wall clock incl. retries and backoff. Without it the worst case is `(MAX_RETRIES + 1) × REQUEST_TIMEOUT_S` |
 | `MAX_RETRIES` | `3` | |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures |
 | `CIRCUIT_BREAKER_RESET_S` | `30` | |
@@ -346,8 +395,8 @@ not a claim that no data leaves — see ADR-006 on why the OCI path is preferred
 
 ## 6. Notes for each consumer
 
-**Role 5 (processing-service)** — call `/classify`, `/extract`, `/analysis/risk`
-per document; `/answer` is request-time, not pipeline. Branch on `retryable`.
+**Role 5 (processing-service)** — call `/classify`, `/extract`, `/analysis/risk`,
+`/summarize` per document; `/answer` is request-time, not pipeline. Branch on `retryable`.
 Timeout 35 s. Treat `degraded: true` as completed-with-caveats.
 
 **Role 6 (search-service)** — replace `OCIGenerativeAIEmbedder.embed` with a

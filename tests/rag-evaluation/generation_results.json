@@ -1,0 +1,427 @@
+{
+  "answerable_questions": 20,
+  "unanswerable_questions": 8,
+  "scored_answerable": 20,
+  "scored_unanswerable": 8,
+  "errors": 0,
+  "citation_doc_accuracy": 1.0,
+  "citation_page_accuracy": 1.0,
+  "answer_f1": 0.641,
+  "grounded_rate": 1.0,
+  "unsupported_rate": 0.0,
+  "refusal_precision": 1.0,
+  "total_refusals": 8,
+  "details": [
+    {
+      "id": "q1",
+      "kind": "answerable",
+      "question": "What are the payment terms in the contract?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.483,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          2
+        ]
+      ],
+      "answer": "According to the contract, payment is due within 60 days of receiving a valid invoice [2]. Late payments will accrue interest at a rate of 1.5% per month [2]."
+    },
+    {
+      "id": "q2",
+      "kind": "answerable",
+      "question": "Does the contract automatically renew?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.829,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          2
+        ]
+      ],
+      "answer": "Yes, the Agreement automatically renews for successive one-year terms unless either Party gives written notice of non-renewal at least 30 days before the end of the current term [2]."
+    },
+    {
+      "id": "q3",
+      "kind": "answerable",
+      "question": "How many days notice is required to terminate the contract for cause?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.385,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          3
+        ]
+      ],
+      "answer": "Either Party may terminate the agreement for cause upon 15 days written notice if there is a material breach that is not cured within the notice period [3]."
+    },
+    {
+      "id": "q4",
+      "kind": "answerable",
+      "question": "How many days notice does the client need to terminate for convenience?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.615,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          3
+        ]
+      ],
+      "answer": "The client may terminate for convenience with 30 days written notice [3]."
+    },
+    {
+      "id": "q5",
+      "kind": "answerable",
+      "question": "What is the interest rate on late payments under the contract?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.5,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          2
+        ]
+      ],
+      "answer": "Under the contract, late payments shall accrue interest at a rate of 1.5% per month [2]."
+    },
+    {
+      "id": "q6",
+      "kind": "answerable",
+      "question": "What is the cap on Provider's liability?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.741,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          3
+        ]
+      ],
+      "answer": "Provider's total liability under the agreement is capped at the total fees paid by the client in the twelve months preceding the claim [3]."
+    },
+    {
+      "id": "q7",
+      "kind": "answerable",
+      "question": "How long does the confidentiality obligation last after termination?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.533,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          4
+        ]
+      ],
+      "answer": "The confidentiality obligation lasts for a period of two (2) years following the termination of the Agreement [4]."
+    },
+    {
+      "id": "q8",
+      "kind": "answerable",
+      "question": "When does the service agreement start and end?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.692,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          1
+        ]
+      ],
+      "answer": "The service agreement starts on 2026-01-01 and remains in effect until 2026-12-31, unless terminated earlier [1]."
+    },
+    {
+      "id": "q9",
+      "kind": "answerable",
+      "question": "Who are the parties to the contract?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.769,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          1
+        ]
+      ],
+      "answer": "The parties to the contract are Company A (\"Provider\") and Company B (\"Client\") [1]."
+    },
+    {
+      "id": "q10",
+      "kind": "answerable",
+      "question": "What law governs the agreement?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.714,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          4
+        ]
+      ],
+      "answer": "The Agreement is governed by the laws of the applicable jurisdiction specified in Exhibit C [4]."
+    },
+    {
+      "id": "q11",
+      "kind": "answerable",
+      "question": "What is the total amount due on the invoice?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.545,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "The total amount due on the invoice is 15,000 EGP [5]."
+    },
+    {
+      "id": "q12",
+      "kind": "answerable",
+      "question": "Who is the vendor on the invoice?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.571,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "The vendor on the invoice is ABC Corp [5]."
+    },
+    {
+      "id": "q13",
+      "kind": "answerable",
+      "question": "What is the invoice number?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.571,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "The invoice number is INV-1024 [5]."
+    },
+    {
+      "id": "q14",
+      "kind": "answerable",
+      "question": "When is the invoice due?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.571,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "The invoice is due on 2026-09-01 [5]."
+    },
+    {
+      "id": "q15",
+      "kind": "answerable",
+      "question": "What happens if the invoice is paid late?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.432,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          2
+        ],
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "If the invoice from the Service Agreement is paid late, it shall accrue interest at a rate of 1.5% per month [2]. For the invoice from ABC Corp, late payments beyond 30 days will incur a 2% monthly in"
+    },
+    {
+      "id": "q16",
+      "kind": "answerable",
+      "question": "What currency is the invoice in?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.5,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "The invoice is in EGP [5]."
+    },
+    {
+      "id": "q17",
+      "kind": "answerable",
+      "question": "What services does the invoice cover?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.88,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "The invoice covers cloud infrastructure consulting for Q3 2026, including architecture review and Kubernetes deployment support [5]."
+    },
+    {
+      "id": "q18",
+      "kind": "answerable",
+      "question": "What tax was applied to the invoice?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.769,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "invoice_sample",
+          1
+        ]
+      ],
+      "answer": "A tax of 7% (amounting to 980 EGP) was applied to the invoice [5]."
+    },
+    {
+      "id": "q19",
+      "kind": "answerable",
+      "question": "What scope of services does the Provider deliver under the contract?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.889,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          1
+        ]
+      ],
+      "answer": "The Provider delivers cloud architecture consulting, document intelligence platform development, and ongoing infrastructure support as described in Exhibit A [1]."
+    },
+    {
+      "id": "q20",
+      "kind": "answerable",
+      "question": "Are indirect or consequential damages covered under the contract?",
+      "doc_hit": true,
+      "page_hit": true,
+      "answer_f1": 0.824,
+      "grounded": true,
+      "refused": false,
+      "citations": [
+        [
+          "contract_sample",
+          3
+        ]
+      ],
+      "answer": "Neither Party shall be liable for indirect, incidental, or consequential damages under this Agreement [3]."
+    },
+    {
+      "id": "u1",
+      "kind": "unanswerable",
+      "question": "Who won the FIFA World Cup in 1998?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u2",
+      "kind": "unanswerable",
+      "question": "What is the Provider's employee headcount?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u3",
+      "kind": "unanswerable",
+      "question": "What penalty applies if the Provider misses a delivery milestone?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u4",
+      "kind": "unanswerable",
+      "question": "Which court has exclusive jurisdiction over disputes under this agreement?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u5",
+      "kind": "unanswerable",
+      "question": "What was the total amount of invoice INV-1023?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u6",
+      "kind": "unanswerable",
+      "question": "How many days of paid annual leave does the agreement grant?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u7",
+      "kind": "unanswerable",
+      "question": "What is the Provider's bank account number for the remittance?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    },
+    {
+      "id": "u8",
+      "kind": "unanswerable",
+      "question": "Does the agreement permit subcontracting to third parties?",
+      "refused": true,
+      "correct": true,
+      "answer": "I could not find an answer in the provided documents."
+    }
+  ],
+  "backend": "openai_compat",
+  "model": "gemini-flash-lite-latest",
+  "reportable": true
+}

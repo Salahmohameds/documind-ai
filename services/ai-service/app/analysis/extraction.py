@@ -102,11 +102,13 @@ _RECEIPT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("date", (rf"\bdate\s*[:\-]?\s*{_DATE}", _DATE)),
 )
 
+# Keyed by the labels /classify can actually return. A receipt field set exists
+# below but is unreachable by design: 'receipt' is not a storable document type
+# (see classify_rules.STORABLE_LABELS), so those documents come through as
+# 'unknown' and extract nothing rather than being mislabelled as invoices.
 FIELD_SETS: dict[str, tuple[FieldSpec, ...]] = {
     "invoice": _INVOICE_FIELDS,
     "contract": _CONTRACT_FIELDS,
-    "receipt": _RECEIPT_FIELDS,
-    "report": (),
     "unknown": (),
 }
 

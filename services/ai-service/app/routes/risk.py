@@ -27,7 +27,14 @@ from app.analysis import risk_rules
 from app.budget import check_text_budget
 from app.config import settings
 from app.errors import AIServiceError
-from app.schemas import Evidence, RiskFinding, RiskRequest, RiskResponse, RiskScoring
+from app.schemas import (
+    Evidence,
+    RiskCategories,
+    RiskFinding,
+    RiskRequest,
+    RiskResponse,
+    RiskScoring,
+)
 
 logger = logging.getLogger(settings.service_name)
 router = APIRouter(tags=["risk"])
@@ -48,6 +55,7 @@ def analyse_risk(request: RiskRequest) -> RiskResponse:
             title=f.title,
             severity=f.severity,
             weight=f.weight,
+            category=f.category,
             evidence=(
                 Evidence(snippet=f.snippet, offset=f.offset) if f.snippet is not None else None
             ),
@@ -110,6 +118,7 @@ def analyse_risk(request: RiskRequest) -> RiskResponse:
         score=result.score,
         band=result.band,
         findings=findings,
+        categories=RiskCategories(**result.categories),
         explanation=explanation,
         scoring=RiskScoring(
             rules_version=result.rules_version,

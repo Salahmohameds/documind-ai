@@ -20,7 +20,7 @@ from app.config import settings
 from app.errors import AIServiceError
 from app.logging_config import setup_logging
 from app.pipeline import record_failure
-from app.routes import answer, classify, embed, extract, health, pii, risk
+from app.routes import answer, classify, embed, extract, health, pii, risk, summarize
 from app.schemas import ErrorResponse
 
 logger = logging.getLogger(settings.service_name)
@@ -150,4 +150,5 @@ app.include_router(classify.router)
 app.include_router(extract.router)
 app.include_router(risk.router)
 app.include_router(answer.router)
+app.include_router(summarize.router)
 app.include_router(pii.router)
