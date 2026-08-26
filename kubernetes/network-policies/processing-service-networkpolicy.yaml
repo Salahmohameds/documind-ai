@@ -1,0 +1,124 @@
+# NetworkPolicy for processing-service.
+#
+# Proposal §12: "default-deny in namespace, then explicit allow paths:
+# ... processing→ai/search/object-storage".
+#
+# The default-deny policy below is namespace-wide and belongs to whoever
+# applies it first; it is included here because a per-service allow-list means
+# nothing without it — with no default-deny, every pod can already reach
+# everything and these rules are decoration.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: documind
+  labels:
+    app.kubernetes.io/part-of: documind
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: processing-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The worker serves no application traffic. The only thing that needs to
+    # reach it is Prometheus, for /metrics.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # --- DNS (without this every other rule fails at resolution) -----------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # --- ai-service and search-service -------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: search-service
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # --- Redis -------------------------------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+    # --- PostgreSQL --------------------------------------------------------
+    # In-cluster selector and CIDR both listed so this works whether the
+    # database is self-hosted or a managed OCI instance reached by IP. Narrow
+    # the CIDR to the database subnet at deploy time (role 2 fills it in from
+    # the Terraform output) — the placeholder below is the VCN range.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # --- OCI Object Storage + the OTel collector ---------------------------
+    # Object Storage is a regional HTTPS endpoint outside the cluster, so this
+    # cannot be a pod selector. 0.0.0.0/0 minus the cluster's own ranges is the
+    # standard shape for "the internet, but not laterally inside the cluster":
+    # it stops this pod being a pivot point while still allowing the bucket.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317

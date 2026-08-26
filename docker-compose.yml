@@ -13,7 +13,9 @@ services:
     volumes:
       - documind_pgdata:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      # Runs between schema and seed: it adds tables that reference documents.
+      - ./database/migrations/002_processing_jobs.sql:/docker-entrypoint-initdb.d/02-processing.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U documind -d documind"]
       interval: 5s
@@ -93,6 +95,53 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  processing-service:
+    build:
+      context: ./services/processing-service
+    container_name: documind-processing-service
+    environment:
+      PORT: 8080
+      SERVICE_NAME: processing-service
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql://documind:documind_dev_only@postgres:5432/documind
+      REDIS_URL: redis://redis:6379/0
+      # Must match document-service's REDIS_STREAM_NAME, which defaults to the
+      # same value — the producer and consumer agree on the stream by name and
+      # nothing else.
+      REDIS_STREAM_NAME: document_jobs
+      REDIS_CONSUMER_GROUP: processing-workers
+      # Reads the same volume document-service writes to. On OKE this becomes
+      # STORAGE_TYPE=oci, because a block volume cannot be mounted by more than
+      # one pod.
+      STORAGE_TYPE: local
+      STORAGE_DIR: /app/storage
+      AI_SERVICE_URL: http://ai-service:8080
+      SEARCH_SERVICE_URL: http://search-service:8080
+      # No SEARCH_SERVICE_AUTH_TOKEN: search-service runs with DISABLE_AUTH=true
+      # here, and the client sends no Authorization header when the token is
+      # empty. In the cluster the token comes from a Kubernetes Secret.
+    volumes:
+      # Read-only: this service consumes documents, it never writes them.
+      - documind_docstorage:/app/storage:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Not just for ordering: a fresh named volume is seeded from whichever
+      # container mounts it first, so document-service must go first or the
+      # volume ends up owned by a uid that cannot write the uploads.
+      document-service:
+        condition: service_healthy
+    healthcheck:
+      # /liveness here means "the consumer task is still running", not merely
+      # "the HTTP server responds" — see app/routes/health.py.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/liveness', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   search-service:
     build:

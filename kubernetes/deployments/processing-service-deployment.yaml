@@ -1,0 +1,164 @@
+# processing-service — the async document processing worker.
+#
+# Takes no inbound traffic: it pulls work from a Redis stream. The Service and
+# the probes exist for health gating and Prometheus scraping, not for routing.
+#
+# IMAGE TAG: replace the placeholder below with an immutable tag (git SHA or
+# vX.Y.Z) at deploy time. kubernetes/README.md: never ':latest'.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+    app.kubernetes.io/component: worker
+spec:
+  # Two so a rolling update or a node drain never leaves the queue with no
+  # consumer. The HPA takes over from here.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: processing-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: processing-service
+        app.kubernetes.io/part-of: documind
+        app.kubernetes.io/component: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Bound to an IAM dynamic group so the pod can read the documents bucket
+      # with no credential mounted anywhere. Created by the Terraform iam
+      # module (role 2).
+      serviceAccountName: processing-service
+      # Longer than GRACEFUL_SHUTDOWN_S (30s) so the drain actually completes:
+      # on SIGTERM the worker stops reading, finishes in-flight jobs, and
+      # leaves anything unfinished un-acked for another pod to reclaim.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: processing-service
+          image: REGION.ocir.io/NAMESPACE/documind/processing-service:REPLACE_WITH_GIT_SHA
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: processing-service-config
+            - secretRef:
+                name: processing-service-secret
+          env:
+            # Becomes the Redis consumer name, so XPENDING output names the pod
+            # holding each message and a stuck job traces back to a pod's logs.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            # From proposal §12. Tuned against the load-test numbers during the
+            # burst rather than guessed at again.
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # For this service /liveness means "the consumer task is still
+          # running" — NOT merely "the HTTP server responds". A worker whose
+          # consumer has died answers HTTP perfectly while the queue grows, and
+          # no other signal catches it. It deliberately does not check Postgres
+          # or Redis: a probe that fails on a database blip would restart every
+          # worker at once and turn an outage into an outage plus a herd.
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Gives a cold start as long as it needs without loosening the
+          # liveness threshold for a pod that is already up.
+          startupProbe:
+            httpGet:
+              path: /liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so anything that writes needs an
+            # explicit writable mount. Both are emptyDir: nothing this service
+            # writes needs to outlive the pod, which is what "stateless" means
+            # here in practice.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# Prometheus scrape target — services/monitoring/GUIDE.md §3.
+#
+# This is NOT optional decoration. kube-prometheus-stack discovers targets via
+# ServiceMonitor, not via `prometheus.io/scrape` pod annotations, so without
+# this object every series this worker exports — including the queue depth the
+# HPA story is told with — is collected by nobody.
+#
+# It is discovered from any namespace because
+# kubernetes/monitoring/kube-prometheus-stack-values.yaml sets
+# serviceMonitorSelectorNilUsesHelmValues: false; the `release` label below
+# matches the Helm release name the guide installs.
+#
+# The guide's template selects on `app: <service-name>`. This selects on
+# `app.kubernetes.io/name` instead, because that is the label
+# kubernetes/README.md mandates and the one the Service actually carries — a
+# copied `app:` selector would match nothing and fail silently, which is the
+# same outcome as having no ServiceMonitor at all.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+    release: kube-prom-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: processing-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

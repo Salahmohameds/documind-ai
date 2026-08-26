@@ -1,0 +1,79 @@
+# Autoscaling for the async workers (proposal §12: min 1, max 10).
+#
+# CPU is the BASELINE signal, and it is an imperfect one for this workload: a
+# worker waiting on a model call is blocked on I/O, not CPU, so a deep queue
+# does not necessarily show up as CPU pressure. It scales here because the
+# extraction and PDF-parsing stages are real CPU work, which is enough for the
+# demo. The correct signal is queue depth — see the KEDA block at the bottom.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: processing-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: processing-service
+    app.kubernetes.io/part-of: documind
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: processing-service
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+  behavior:
+    scaleUp:
+      # Deliberately eager: a queue that is backing up is a user waiting, and
+      # an idle extra worker costs almost nothing.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Deliberately slow: scaling in mid-job means the drain has to run and
+      # some work gets reclaimed by another pod. Correct, but wasteful if it
+      # happens on every dip.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+---
+# STRETCH GOAL (proposal §12): scale on queue depth instead of CPU.
+#
+# This is the signal that actually matches the workload — number of jobs
+# waiting, not how busy the current pods happen to look. The worker already
+# exports `documind_processing_stream_pending`, and KEDA reads the stream
+# directly, so enabling this is installing KEDA and applying the block below;
+# no application change is needed.
+#
+# Requires: helm install keda kedacore/keda -n keda --create-namespace
+#
+# apiVersion: keda.sh/v1alpha1
+# kind: ScaledObject
+# metadata:
+#   name: processing-service
+#   namespace: documind
+# spec:
+#   scaleTargetRef:
+#     name: processing-service
+#   minReplicaCount: 1
+#   maxReplicaCount: 10
+#   cooldownPeriod: 300
+#   triggers:
+#     - type: redis-streams
+#       metadata:
+#         addressFromEnv: REDIS_URL
+#         stream: document_jobs
+#         consumerGroup: processing-workers
+#         # Scale out once the backlog exceeds ~5 jobs per worker.
+#         pendingEntriesCount: "5"
+#       authenticationRef:
+#         name: redis-credentials
