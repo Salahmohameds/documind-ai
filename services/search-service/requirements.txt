@@ -5,3 +5,9 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 pyjwt>=2.8.0
 requests>=2.31.0
+python-json-logger
+opentelemetry-distro
+opentelemetry-exporter-otlp
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-requests
+prometheus-fastapi-instrumentator

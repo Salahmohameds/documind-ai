@@ -9,12 +9,21 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .config import Config
-from .logging_utils import get_logger
+from app_instrumentation.logging_setup import configure_logging
+from app_instrumentation.otel_setup import setup_tracing, setup_metrics
+from app_instrumentation.request_id_middleware import RequestIDMiddleware, get_request_id
 from .search import index_document as _index_document, search as _search
 
-logger = get_logger()
+SERVICE_NAME = "search-service"
+
+logger = configure_logging(service_name=SERVICE_NAME)
+
 app = FastAPI(title="DocuMind AI - Search Service")
 
+setup_tracing(app, service_name=SERVICE_NAME)
+setup_metrics(app)
+
+app.add_middleware(RequestIDMiddleware)
 
 _ready_state = {"ready": False}
 
@@ -49,39 +58,6 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     question: str
     results: List[SearchResultItem]
-
-
-# ---------------------------------------------------------------------
-# Middleware: request ID propagation + structured access logging
-# ---------------------------------------------------------------------
-
-@app.middleware("http")
-async def request_context_middleware(request: Request, call_next):
-    request_id = (
-        request.headers.get("X-Request-ID")
-        or request.headers.get("traceparent")
-        or str(uuid.uuid4())
-    )
-    start = time.time()
-    request.state.request_id = request_id
-
-    response = await call_next(request)
-
-    duration_ms = round((time.time() - start) * 1000, 2)
-    response.headers["X-Request-ID"] = request_id
-
-    logger.info(
-        f"{request.method} {request.url.path}",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duration_ms": duration_ms,
-        },
-    )
-    return response
-
-
 
 
 PUBLIC_PATHS = {"/liveness", "/readiness"}
@@ -137,7 +113,7 @@ def readiness():
 
 @app.post("/index", response_model=IndexResponse)
 def index(req: IndexRequest, request: Request):
-    request_id = request.state.request_id
+    request_id = get_request_id()
     try:
         count = _index_document(req.document_id, req.content)
     except Exception as e:
@@ -181,11 +157,11 @@ def _do_search(question: str, top_k: Optional[int], request_id: str) -> QueryRes
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest, request: Request):
     """POST variant - used by internal services (e.g. AI Service) passing a JSON body."""
-    return _do_search(req.question, req.top_k, request.state.request_id)
+    return _do_search(req.question, req.top_k, get_request_id())
 
 
 @app.get("/search", response_model=QueryResponse)
 def search_get(question: str, top_k: Optional[int] = None, request: Request = None):
     """GET variant - convenient for quick manual testing / gateway routing."""
-    request_id = request.state.request_id if request else "n/a"
+    request_id = get_request_id()
     return _do_search(question, top_k, request_id)
