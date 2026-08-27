@@ -1,10 +1,12 @@
 """Document service proxy routes.
 
 Confirmed contract endpoints:
-- ``POST /documents``
-- ``GET  /documents``
-- ``GET  /documents/{document_id}``
-- ``GET  /documents/{document_id}/status``
+- ``POST   /documents``
+- ``GET    /documents``
+- ``DELETE /documents``
+- ``POST   /documents/reprocess``
+- ``GET    /documents/{document_id}``
+- ``GET    /documents/{document_id}/status``
 
 All protected by JWT authentication.  The request is forwarded to the
 document-service with ``X-User-Email`` and ``X-User-Role`` injected.
@@ -45,6 +47,47 @@ async def proxy_list_documents(
         request=request,
         target_base_url=settings.document_service_url,
         target_path="/documents",
+        user=user,
+    )
+
+
+@router.delete("/documents")
+async def proxy_delete_documents(
+    request: Request,
+    user: AuthenticatedUser = Depends(require_jwt),
+):
+    """Forward ``DELETE /documents`` to the document service.
+
+    Bulk, collection-level and body-carrying: the ``{"ids": [...]}`` payload is
+    relayed verbatim by ``proxy_request``, which forwards a body on any method.
+    Per-id outcomes come back inside a 200 ``BulkResult`` — a document that
+    could not be deleted is reported in ``failed[]``, not as an error status.
+    """
+    return await proxy_request(
+        request=request,
+        target_base_url=settings.document_service_url,
+        target_path="/documents",
+        user=user,
+    )
+
+
+# Declared ahead of ``/documents/{document_id}`` so the literal ``reprocess``
+# path is never a candidate for the parameterised route.
+@router.post("/documents/reprocess")
+async def proxy_reprocess_documents(
+    request: Request,
+    user: AuthenticatedUser = Depends(require_jwt),
+):
+    """Forward ``POST /documents/reprocess`` to the document service.
+
+    Same bulk contract as delete: ``{"ids": [...]}`` in, a 200 ``BulkResult``
+    out.  document-service resets each document to *queued* and republishes the
+    processing job using the identical Redis payload the upload flow emits.
+    """
+    return await proxy_request(
+        request=request,
+        target_base_url=settings.document_service_url,
+        target_path="/documents/reprocess",
         user=user,
     )
 
