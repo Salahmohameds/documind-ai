@@ -22,7 +22,7 @@ resource "oci_objectstorage_bucket" "this" {
 }
 
 resource "oci_objectstorage_object_lifecycle_policy" "abort_multipart" {
-  for_each = local.buckets
+  for_each = var.enable_lifecycle_policy ? local.buckets : {}
 
   namespace = var.namespace
   bucket    = oci_objectstorage_bucket.this[each.key].name

@@ -7,23 +7,53 @@
  * `search-service` and `ai-service` actually live.
  */
 
-/** Where each service listens. Overridden per environment; never hard-coded in a component. */
-export const DOCUMENT_SERVICE_URL = (
-  process.env.DOCUMENT_SERVICE_URL ?? "http://localhost:8081"
-).replace(/\/+$/, "");
+/**
+ * Where each service listens. Overridden per environment; never hard-coded
+ * in a component.
+ *
+ * The `http://localhost:*` fallback only ever resolves correctly on a
+ * developer's own machine running `docker compose`. Inside Kubernetes
+ * `localhost` is the frontend pod itself — a missing env var would silently
+ * point every backend call nowhere instead of failing loudly, which is far
+ * harder to diagnose than a startup crash. `NODE_ENV=production` is set
+ * unconditionally by `next start`/the Docker image (see ./Dockerfile), so
+ * this only ever fires against a genuinely unconfigured production
+ * deployment, never local `next dev`.
+ */
+function requiredServiceUrl(envVar: string, devFallback: string): string {
+  const value = process.env[envVar];
+  if (!value) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        `${envVar} is not set. Set it to the in-cluster Service URL ` +
+          `(e.g. http://document-service.documind.svc.cluster.local:8080) ` +
+          `in the frontend Deployment's ConfigMap.`,
+      );
+    }
+    return devFallback;
+  }
+  return value.replace(/\/+$/, "");
+}
 
-export const SEARCH_SERVICE_URL = (
-  process.env.SEARCH_SERVICE_URL ?? "http://localhost:8080"
-).replace(/\/+$/, "");
+export const DOCUMENT_SERVICE_URL = requiredServiceUrl(
+  "DOCUMENT_SERVICE_URL",
+  "http://localhost:8081",
+);
+
+export const SEARCH_SERVICE_URL = requiredServiceUrl(
+  "SEARCH_SERVICE_URL",
+  "http://localhost:8080",
+);
 
 /**
  * `ai-service` generates the written answer from passages `search-service` has
  * already retrieved. It deliberately does not retrieve, so it is only ever
  * reached after a search — see `app/api/answer/route.ts`.
  */
-export const AI_SERVICE_URL = (
-  process.env.AI_SERVICE_URL ?? "http://localhost:8082"
-).replace(/\/+$/, "");
+export const AI_SERVICE_URL = requiredServiceUrl(
+  "AI_SERVICE_URL",
+  "http://localhost:8082",
+);
 
 /**
  * search-service rejects everything except its probes unless a bearer token is

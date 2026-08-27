@@ -29,9 +29,14 @@ locals {
     for r in values(local.ip_int) : r[0] >= local.vcn_start && r[1] <= local.vcn_end
   ])
 
+  # setproduct() gives every ordered pair including self-pairs and both
+  # (a,b)/(b,a) orderings; skip only the (self, self) case (trivially
+  # disjoint) -- the disjointness check itself is symmetric, so evaluating
+  # each unordered pair twice is redundant but harmless, unlike comparing
+  # subnet *key strings* with >= (which HCL's numeric-only >= cannot do).
   subnets_disjoint = alltrue([
     for pair in setproduct(keys(var.subnets), keys(var.subnets)) :
-    pair[0] >= pair[1] ? true : (
+    pair[0] == pair[1] ? true : (
       local.ip_int[pair[0]][1] < local.ip_int[pair[1]][0] ||
       local.ip_int[pair[1]][1] < local.ip_int[pair[0]][0]
     )

@@ -1,0 +1,64 @@
+# NetworkPolicy for frontend.
+#
+# Traffic reflects the ACTUAL current code, not the originally-intended
+# diagram: frontend/documind/lib/server/backend.ts calls document-service,
+# search-service, and ai-service directly -- there is no API_GATEWAY_URL
+# env var or code path anywhere in the frontend (confirmed by source grep;
+# only comments describing the gap exist). See ADR-001's 2026-08-27
+# amendment for the full reasoning. This policy is scoped to what the
+# frontend can actually reach today; it is not a statement that this is
+# the desired end-state architecture.
+#
+# Like api-gateway, frontend is meant to be reachable from outside the
+# cluster (its own LoadBalancer Service, not yet applied), so ingress is
+# not restricted to an in-cluster selector.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: documind
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # LB/NodePort traffic once frontend-service.yaml (type: LoadBalancer) is
+    # applied.
+    - ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # --- DNS -----------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # --- document-service / search-service / ai-service ---------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: document-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: search-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-service
+      ports:
+        - protocol: TCP
+          port: 8080

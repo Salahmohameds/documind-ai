@@ -6,17 +6,32 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: redis
+      app.kubernetes.io/name: redis
   policyTypes:
   - Ingress
+  - Egress
   ingress:
   - from:
     - podSelector:
         matchLabels:
-          app: document-service 
+          app.kubernetes.io/name: document-service
     - podSelector:
         matchLabels:
-          app: worker 
+          app.kubernetes.io/name: processing-service
     ports:
     - protocol: TCP
       port: 6379
+  egress:
+  # DNS only -- Redis itself calls no other service or external endpoint.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

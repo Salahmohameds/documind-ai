@@ -35,6 +35,21 @@ variable "multipart_abort_days" {
   }
 }
 
+variable "enable_lifecycle_policy" {
+  description = <<-EOT
+    Whether to create the abort-incomplete-multipart-upload lifecycle rule.
+    Default false: applying it requires the Object Storage service
+    principal (objectstorage-<region>) to already have management
+    permission on the bucket, which is a tenancy/root-level policy grant
+    this compartment-scoped deployment identity does not have (confirmed:
+    400 InsufficientServicePermissions on first apply). This is cost
+    hygiene, not a functional requirement for the demo -- set true once an
+    admin confirms/grants that service-principal permission.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Freeform tags."
   type        = map(string)

@@ -44,9 +44,14 @@ module "object_storage" {
 module "ocir" {
   source = "../../modules/ocir"
 
-  compartment_id    = var.compartment_id
-  region            = var.region
-  repository_prefix = var.ocir_namespace != "" ? var.ocir_namespace : data.oci_objectstorage_namespace.this.namespace
+  compartment_id = var.compartment_id
+  region         = var.region
+  # "/documind" so the resulting repository paths
+  # (<namespace>/documind/<service>) match what every Kubernetes Deployment
+  # manifest actually references (e.g.
+  # kubernetes/deployments/processing-service-deployment.yaml's
+  # REGION.ocir.io/NAMESPACE/documind/processing-service:TAG placeholder).
+  repository_prefix = var.ocir_namespace != "" ? var.ocir_namespace : "${data.oci_objectstorage_namespace.this.namespace}/documind"
 }
 
 # 3 â”€â”€ OKE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -81,6 +86,15 @@ module "oke" {
 }
 
 # 4 â”€â”€ IAM (workload identity) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# IAM OWNERSHIP:
+#   ADMIN (Eng. Belal, tenancy-level):  dm-demo-dg-oke-nodes,
+#     dm-demo-dg-workloads dynamic groups -- created by hand, out of band.
+#   PROJECT / TERRAFORM (this module, compartment-level): the IAM
+#     policies attached to those groups, plus every other OCI resource
+#     this environment manages (networking, OKE, OCIR, Object Storage,
+#     monitoring, bastion, database).
+# manage_dynamic_groups=false (the default) keeps Terraform from ever
+# trying to create the admin-owned groups; see modules/iam/main.tf.
 module "iam" {
   source = "../../modules/iam"
 
@@ -91,6 +105,7 @@ module "iam" {
   documents_bucket_name = module.object_storage.documents_bucket_name
   processed_bucket_name = module.object_storage.processed_bucket_name
   tags                  = local.tags
+  manage_dynamic_groups = var.manage_dynamic_groups
 }
 
 # Integer-range overlap check for the Kubernetes Service CIDR vs the VCN
@@ -127,7 +142,11 @@ locals {
 
 check "services_cidr_disjoint_from_vcn" {
   assert {
-    condition     = !(local.vcn_end < local.svc_start || local.svc_end < local.vcn_start)
+    # Disjoint (pass) means one range ends before the other starts, either
+    # direction. The un-negated form was inverted -- it asserted the ranges
+    # DO overlap, so it warned on every correct (non-overlapping) config and
+    # would have silently passed a real overlap.
+    condition     = local.vcn_end < local.svc_start || local.svc_end < local.vcn_start
     error_message = "Kubernetes services_cidr (${var.services_cidr}) must not overlap vcn_cidr (${var.vcn_cidr})."
   }
 }

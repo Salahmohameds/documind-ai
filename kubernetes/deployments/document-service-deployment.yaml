@@ -1,0 +1,97 @@
+# document-service — upload, metadata, Object Storage write, job creation.
+#
+# IMAGE TAG: replace the placeholder below with an immutable tag (git SHA or
+# vX.Y.Z) at deploy time. Built with --build-arg INSTALL_OCI=true so
+# STORAGE_TYPE=oci_object_storage works. kubernetes/README.md: never ':latest'.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: document-service
+    app.kubernetes.io/part-of: documind
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: document-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: document-service
+        app.kubernetes.io/part-of: documind
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: document-service
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: document-service
+          image: REGION.ocir.io/NAMESPACE/documind/document-service:REPLACE_WITH_GIT_SHA
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: document-service-config
+            - secretRef:
+                name: document-service-secret
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Readiness checks Postgres + Redis reachability; liveness does not,
+          # so a downstream blip degrades traffic routing instead of
+          # triggering a pointless restart loop.
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

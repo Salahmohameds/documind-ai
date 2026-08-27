@@ -1,0 +1,20 @@
+# Headless Service backing the redis StatefulSet (required: StatefulSet.spec.serviceName
+# must resolve to a Service, and a headless Service is the conventional choice
+# for a StatefulSet even at replicas: 1).
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: documind
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP

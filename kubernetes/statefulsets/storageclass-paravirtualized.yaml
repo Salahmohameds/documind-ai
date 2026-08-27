@@ -1,0 +1,19 @@
+# This OKE node pool has in-transit encryption enabled, which the OCI Block
+# Volume CSI driver's default `oci-bv` StorageClass cannot use (it attaches
+# via iSCSI; in-transit-encrypted nodes require paravirtualized attachment --
+# confirmed via a real failed attach: "node ... has in transit encryption
+# enabled, but attachment type is not paravirtualized"). This is a
+# configuration fix, not a security downgrade -- paravirtualized attachment
+# is the supported/recommended mode for encryption-enabled nodes.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: oci-bv-paravirtualized
+  labels:
+    app.kubernetes.io/part-of: documind
+provisioner: blockvolume.csi.oraclecloud.com
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  attachment-type: paravirtualized

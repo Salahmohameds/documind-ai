@@ -1,0 +1,15 @@
+# Optional, NOT installed in the default container image.
+#
+# Only needed if EMBEDDING_BACKEND=local_st (src/embeddings.py ->
+# LocalSentenceTransformerEmbedder). The demo/default backend is
+# EMBEDDING_BACKEND=mock (deterministic hash-based vectors, zero ML deps)
+# or EMBEDDING_BACKEND=ai_service (delegates embedding generation to
+# ai-service over HTTP). sentence-transformers pulls in PyTorch + CUDA
+# packages that previously exhausted the GitHub Actions runner's disk
+# during the CI Docker-build+Trivy-scan step -- keep it out of the base
+# image and requirements.txt.
+#
+# To use the local-model backend (e.g. for offline development):
+#   pip install -r requirements.txt -r requirements-local-embeddings.txt
+#   EMBEDDING_BACKEND=local_st
+sentence-transformers>=2.2.0

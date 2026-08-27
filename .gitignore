@@ -5,8 +5,10 @@
 **/*.tfstate.*
 **/*.tfstate.backup
 **/*.tfplan
-**/tfplan
-**/tfplan-*
+# Covers tfplan, tfplan2, tfplan3, tfplan-bootstrap, etc. -- any plan file
+# saved with `terraform plan -out=...` under this naming convention. Plan
+# files can embed sensitive variable values in plaintext; never commit them.
+**/tfplan*
 **/crash.log
 **/crash.*.log
 **/override.tf
@@ -92,8 +94,8 @@ services/search-service/local_vector_store.json
 # Load test output
 tests/load/results/
 
-# Local upload storage — generated when running document-service locally
+# Local upload storage ï¿½ generated when running document-service locally
 services/*/storage/
 
-# Generated edge-case fixtures — rebuild with tests/fixtures/generator/edge_cases.py
+# Generated edge-case fixtures ï¿½ rebuild with tests/fixtures/generator/edge_cases.py
 tests/fixtures/edge-cases/

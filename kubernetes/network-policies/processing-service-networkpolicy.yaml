@@ -3,23 +3,9 @@
 # Proposal §12: "default-deny in namespace, then explicit allow paths:
 # ... processing→ai/search/object-storage".
 #
-# The default-deny policy below is namespace-wide and belongs to whoever
-# applies it first; it is included here because a per-service allow-list means
-# nothing without it — with no default-deny, every pod can already reach
-# everything and these rules are decoration.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-all
-  namespace: documind
-  labels:
-    app.kubernetes.io/part-of: documind
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-    - Egress
----
+# The namespace-wide default-deny lives in 01-default-deny.yaml (applied
+# once for the whole namespace); this file only adds processing-service's
+# own explicit allow rules on top of it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -81,7 +67,13 @@ spec:
         - protocol: TCP
           port: 6379
 
-    # --- PostgreSQL --------------------------------------------------------
+    # --- PostgreSQL --
+    # PostgreSQL is TEMPORARILY in-cluster (see
+    # kubernetes/statefulsets/postgres-statefulset.yaml header) because the
+    # OCI-managed instance hit its dbsystem-count quota during the burst --
+    # the podSelector rule below is what reaches it; the ipBlock rule below
+    # that is kept as a fallback for once the managed instance is restored.
+    # ---
     # In-cluster selector and CIDR both listed so this works whether the
     # database is self-hosted or a managed OCI instance reached by IP. Narrow
     # the CIDR to the database subnet at deploy time (role 2 fills it in from

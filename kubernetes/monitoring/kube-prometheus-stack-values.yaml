@@ -20,8 +20,14 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
 
 grafana:
-  adminUser: admin
-  adminPassword: ejada2026
+  admin:
+    # Create the secret first (never commit the real values):
+    #   kubectl -n monitoring create secret generic grafana-admin-credentials \
+    #     --from-literal=admin-user=admin \
+    #     --from-literal=admin-password="$(openssl rand -base64 24)"
+    existingSecret: grafana-admin-credentials
+    userKey: admin-user
+    passwordKey: admin-password
   service:
     type: ClusterIP
   # Auto-provision our dashboard on startup so nobody has to import it by hand

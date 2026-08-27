@@ -1,0 +1,94 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: document-service
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: document-service
+    app.kubernetes.io/part-of: documind
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: document-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only api-gateway calls document-service directly; Prometheus scrapes it.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # --- DNS -----------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # --- PostgreSQL --
+    # PostgreSQL is TEMPORARILY in-cluster (see
+    # kubernetes/statefulsets/postgres-statefulset.yaml header) because the
+    # OCI-managed instance hit its dbsystem-count quota during the burst --
+    # the podSelector rule below is what reaches it; the ipBlock rule below
+    # that is kept as a fallback for once the managed instance is restored.
+    # ---
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # --- Redis -------------------------------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+    # --- OCI Object Storage + OTel collector ---------------------------------
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317

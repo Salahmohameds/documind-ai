@@ -7,6 +7,8 @@ Follows the services/README.md non-negotiable:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 
 
@@ -32,9 +34,19 @@ class Settings(BaseSettings):
     redis_stream_name: str = "document_jobs"
 
     # --- Storage ------------------------------------------------------------
-    storage_type: str = "local"  # "local" | "oci_object_storage"
+    # "local" (a block volume) is single-pod/dev-only: it cannot be shared
+    # across document-service replicas and processing-service can never read
+    # it. "oci_object_storage" is required for anything beyond a single-pod
+    # local dev run.
+    storage_type: Literal["local", "oci_object_storage"] = "local"
     storage_dir: str = "/app/storage"
-    oci_bucket_name: str = "dm-documents"
+    oci_bucket_name: str = "dm-demo-documents"
+    oci_namespace: str = ""
+    oci_region: str = ""
+    # 'workload' -> OKE workload identity (production)
+    # 'instance' -> instance principal    (VM fallback)
+    # 'config'   -> ~/.oci/config         (LOCAL DEV ONLY)
+    oci_auth_mode: Literal["workload", "instance", "config"] = "workload"
 
     # --- Upload limits ------------------------------------------------------
     max_upload_mb: int = 25

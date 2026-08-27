@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: search-service-config
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: search-service
+    app.kubernetes.io/part-of: documind
+data:
+  # --- Application ---------------------------------------------------------
+  PORT: "8080"
+
+  # --- Embeddings --------------------------------------------------------
+  # "ai_service" delegates embedding generation to ai-service over HTTP
+  # (keeps the model out of this container). "mock" (hash-based, zero deps)
+  # is the safe fallback if ai-service embeddings aren't ready. Do NOT set
+  # "local_st" here -- that backend's dependency (sentence-transformers) is
+  # deliberately excluded from the default image (see
+  # services/search-service/requirements-local-embeddings.txt).
+  EMBEDDING_BACKEND: "ai_service"
+  EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+  EMBEDDING_DIM: "384"
+
+  # --- Chunking ------------------------------------------------------------
+  CHUNK_SIZE: "500"
+  CHUNK_OVERLAP: "50"
+
+  # --- Vector store ----------------------------------------------------------
+  # "memory" (the code default) is an in-memory store that resets on every
+  # pod restart -- not demo-worthy for RAG citations. "postgres" requires
+  # terraform: enable_database=true (see environments/demo/terraform.tfvars).
+  VECTOR_STORE_BACKEND: "postgres"
+  # Non-secret connection pieces; DB_PASSWORD lives in the Secret. Filled in
+  # by role 2 at deploy time from the Terraform database module's outputs.
+  DB_HOST: ""
+  DB_PORT: "5432"
+  DB_NAME: "documind"
+  DB_USER: "documind"
+
+  # --- Search ----------------------------------------------------------
+  TOP_K: "5"
+
+  # --- ai-service (embeddings) -----------------------------------------------
+  AI_SERVICE_URL: "http://ai-service.documind.svc.cluster.local:8080"
+  AI_SERVICE_TIMEOUT: "30"
+  AI_SERVICE_MAX_EMBED_BATCH: "96"
+
+  # --- Auth ------------------------------------------------------------------
+  # JWT_SECRET lives in the Secret and MUST equal api-gateway's JWT_SECRET --
+  # both validate the same tokens.
+  JWT_ALGORITHM: "HS256"
+  DISABLE_AUTH: "false"

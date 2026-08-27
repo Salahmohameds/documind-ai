@@ -39,3 +39,10 @@ class DocumentNotFoundError(DocumentServiceError):
     status_code = 404
     code = "ERR_DOCUMENT_NOT_FOUND"
     title = "Document not found"
+
+
+class StorageUnavailableError(DocumentServiceError):
+    status_code = 503
+    code = "ERR_STORAGE_UNAVAILABLE"
+    title = "Storage backend unavailable"
+    retryable = True

@@ -1,0 +1,64 @@
+# NetworkPolicy for api-gateway.
+#
+# This is the one pod in the namespace that legitimately accepts traffic
+# from outside the cluster (via the OCI Load Balancer's NodePort health
+# checks and forwarded connections), so ingress is intentionally not
+# restricted to an in-cluster selector the way every other service's is.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: documind
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # LB/NodePort traffic and Prometheus scraping.
+    - ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # --- DNS -----------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # --- document-service / ai-service / search-service ---------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: document-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: search-service
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # --- OTel collector --------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317

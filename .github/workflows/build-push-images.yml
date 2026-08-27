@@ -1,0 +1,141 @@
+# Gated image build/push: build each service (+ frontend), scan it, push an
+# immutable git-SHA tag to OCIR. Never pushes ':latest'.
+#
+# REQUIREMENTS BEFORE FIRST RUN (one-time, GitHub UI):
+#   1. Same "demo" environment as deploy-demo.yml (Settings > Environments >
+#      demo > Required reviewers) -- this workflow can push real images to a
+#      real registry, so it is gated the same way.
+#   2. Add repository secrets (different from the OCI_CLI_* Terraform
+#      secrets -- registry auth uses an OCI Auth Token, not the API signing
+#      key):
+#        OCIR_USERNAME     e.g. "<namespace>/<oci-username>" (or
+#                          "<namespace>/oracleidentitycloudservice/<username>"
+#                          for a federated/IDCS user)
+#        OCIR_AUTH_TOKEN   an OCI Auth Token generated for that user
+#                          (Console: Identity > Users > <user> > Auth Tokens)
+#   3. Add repository variables:
+#        OCIR_REGION       e.g. "me-jeddah-1"
+#        OCIR_REPO_PREFIX  "<Object Storage namespace>/documind" --
+#                          MUST match terraform's ocir_namespace /
+#                          repository_prefix (see
+#                          terraform/environments/demo/variables.tf), or
+#                          pushes will land in repositories Terraform never
+#                          created.
+#
+# Run this before deploy-demo.yml's Kubernetes apply step (OKE must have
+# something to pull); it does not depend on Terraform having run first,
+# since OCIR repositories are created by Terraform separately (module.ocir).
+
+name: build-push-images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-build-push
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    environment: demo # same required-reviewer approval gate as deploy-demo.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover images to build
+        id: imgs
+        run: |
+          # services/<name>/Dockerfile -> "services/<name>"; frontend is a
+          # sibling top-level directory, added explicitly since it does not
+          # live under services/.
+          mapfile -t dirs < <(find services -maxdepth 2 -name Dockerfile -printf '%h\n' 2>/dev/null | sort)
+          if [ -f frontend/documind/Dockerfile ]; then
+            dirs+=("frontend/documind")
+          fi
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "none=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "none=false" >> "$GITHUB_OUTPUT"
+            echo "list=${dirs[*]}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: aquasecurity/setup-trivy@v0.2.6
+      - name: Install Trivy
+        if: steps.imgs.outputs.none == 'false'
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Log in to OCIR
+        if: steps.imgs.outputs.none == 'false'
+        run: |
+          echo "$OCIR_AUTH_TOKEN" | docker login "${OCIR_REGION}.ocir.io" \
+            --username "$OCIR_USERNAME" --password-stdin
+        env:
+          OCIR_REGION: ${{ vars.OCIR_REGION }}
+          OCIR_USERNAME: ${{ secrets.OCIR_USERNAME }}
+          OCIR_AUTH_TOKEN: ${{ secrets.OCIR_AUTH_TOKEN }}
+
+      - name: Build, scan, and push each image
+        if: steps.imgs.outputs.none == 'false'
+        env:
+          OCIR_REGION: ${{ vars.OCIR_REGION }}
+          OCIR_REPO_PREFIX: ${{ vars.OCIR_REPO_PREFIX }}
+        run: |
+          set -euo pipefail
+          for d in ${{ steps.imgs.outputs.list }}; do
+            name="$(basename "$d")"
+            # frontend's build directory is frontend/documind -> service name
+            # "documind" would be wrong; special-case it back to "frontend"
+            # to match the OCIR repository Terraform actually creates
+            # (terraform/modules/ocir/variables.tf: service_names).
+            if [ "$d" = "frontend/documind" ]; then name="frontend"; fi
+
+            tag="${OCIR_REGION}.ocir.io/${OCIR_REPO_PREFIX}/${name}:${GITHUB_SHA}"
+            echo "::group::Building $d -> $tag"
+            build_args=()
+            # document-service, processing-service and ai-service only ship
+            # the OCI SDK when explicitly asked -- required for the real
+            # (non-mock) OCI-backed deployment, see each Dockerfile's header.
+            if [ -f "$d/requirements-oci.txt" ]; then
+              build_args+=(--build-arg INSTALL_OCI=true)
+            fi
+            docker build "${build_args[@]}" -t "$tag" "$d"
+            echo "::endgroup::"
+
+            echo "::group::Trivy scan $tag"
+            trivy image --exit-code 0 --severity HIGH,CRITICAL "$tag"
+            # Non-blocking for now, matching ci.yml's services-build-scan
+            # job; tighten to --exit-code 1 once a HIGH/CRITICAL baseline is
+            # established (see ci.yml's M4 note).
+            echo "::endgroup::"
+
+            echo "::group::Push $tag"
+            docker push "$tag"
+            echo "::endgroup::"
+
+            docker rmi -f "$tag" || true
+          done
+
+      - name: Pushed image manifest
+        if: steps.imgs.outputs.none == 'false'
+        run: |
+          {
+            echo "# Images pushed for $GITHUB_SHA"
+            for d in ${{ steps.imgs.outputs.list }}; do
+              name="$(basename "$d")"
+              if [ "$d" = "frontend/documind" ]; then name="frontend"; fi
+              echo "- ${OCIR_REGION}.ocir.io/${OCIR_REPO_PREFIX}/${name}:${GITHUB_SHA}"
+            done
+          } > images.txt
+          cat images.txt
+        env:
+          OCIR_REGION: ${{ vars.OCIR_REGION }}
+          OCIR_REPO_PREFIX: ${{ vars.OCIR_REPO_PREFIX }}
+
+      - name: Upload image manifest (evidence)
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ github.sha }}
+          path: images.txt

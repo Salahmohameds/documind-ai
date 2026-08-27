@@ -41,7 +41,7 @@ data:
   # Authentication is OKE workload identity — the pod's service account maps to
   # an IAM dynamic group. No credential is mounted anywhere.
   OCI_AUTH_MODE: "workload"
-  OCI_BUCKET_NAME: "dm-documents"
+  OCI_BUCKET_NAME: "dm-demo-documents"
   # Filled in by role 2 at deploy time from the Terraform outputs.
   OCI_NAMESPACE: ""
   OCI_REGION: ""

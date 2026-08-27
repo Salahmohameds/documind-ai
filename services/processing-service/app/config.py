@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # --- Object storage -----------------------------------------------------
     storage_type: StorageType = "local"
     storage_dir: str = "/app/storage"
-    oci_bucket_name: str = "dm-documents"
+    oci_bucket_name: str = "dm-demo-documents"
     oci_namespace: str = ""
     oci_region: str = ""
     # 'workload' -> OKE workload identity (production)
