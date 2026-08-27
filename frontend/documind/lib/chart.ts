@@ -90,26 +90,90 @@ function axisMax(peak: number): number {
   return Math.max(4, Math.ceil(peak / 4) * 4);
 }
 
+import type { Tone } from "@/lib/design";
+
 export type GaugeTick = {
   angle: number;
+  /** False only when nothing has been scored — the dial is genuinely empty. */
   on: boolean;
   height: number;
   offset: number;
   opacity: number;
+  /** The band this tick belongs to. Meaningless when `on` is false. */
+  tone: Tone;
 };
 
-/** 41 radial ticks sweeping -90°→+90°; the first `pct`% are filled. */
-export function buildGaugeTicks(pct: number): GaugeTick[] {
-  const count = 41;
-  const filled = Math.round((pct / 100) * count);
-  return Array.from({ length: count }, (_, i) => {
-    const on = i < filled;
+/** A band of the risk distribution, in dial order: safest first. */
+export type GaugeBand = { value: number; tone: Tone };
+
+const GAUGE_TICKS = 41;
+
+/**
+ * 41 radial ticks sweeping -90°→+90°, split across the risk bands.
+ *
+ * The dial used to fill only with the low-risk share, in one colour. That made
+ * it useless in exactly the case worth looking at: a library where nothing is
+ * low risk rendered as a uniformly grey arc reading 0%, while the legend
+ * underneath reported six elevated and two high. All of the information was in
+ * the caption and none of it in the picture.
+ *
+ * Now every scored document is on the dial and coloured by its band, so the
+ * arc shows the shape of the library and the headline number stays the metric
+ * the card is named for.
+ */
+export function buildGaugeTicks(bands: GaugeBand[]): GaugeTick[] {
+  const allocation = allocate(bands, GAUGE_TICKS);
+
+  return Array.from({ length: GAUGE_TICKS }, (_, i) => {
+    const tone = allocation[i];
+    const on = tone !== null;
     return {
-      angle: -90 + (180 * i) / (count - 1),
+      angle: -90 + (180 * i) / (GAUGE_TICKS - 1),
       on,
       height: on ? 20 : 14,
       offset: on ? 104 : 107,
-      opacity: on ? Number((0.35 + 0.65 * (i / filled)).toFixed(2)) : 1,
+      // A gentle ramp across the whole dial, so it still reads as sweeping to
+      // its value rather than switching on all at once.
+      opacity: on ? Number((0.55 + 0.45 * (i / (GAUGE_TICKS - 1))).toFixed(2)) : 1,
+      tone: tone ?? "--idle",
     };
   });
 }
+
+/**
+ * Spreads `count` ticks across the bands in proportion to their values.
+ *
+ * Largest-remainder rather than rounding each independently, so the ticks
+ * always total exactly `count`. Any band with at least one document is
+ * guaranteed at least one tick: a single high-risk document in a library of a
+ * hundred rounds to zero, and that is the one nobody can afford to lose.
+ */
+function allocate(bands: GaugeBand[], count: number): (Tone | null)[] {
+  const total = bands.reduce((sum, b) => sum + b.value, 0);
+  if (total === 0) return new Array<Tone | null>(count).fill(null);
+
+  const exact = bands.map((b) => (b.value / total) * count);
+  const shares = exact.map(Math.floor);
+
+  let left = count - shares.reduce((a, b) => a + b, 0);
+  const byRemainder = exact
+    .map((e, i) => ({ i, r: e - Math.floor(e) }))
+    .sort((a, b) => b.r - a.r);
+
+  for (let k = 0; left > 0; k += 1, left -= 1) {
+    shares[byRemainder[k % byRemainder.length].i] += 1;
+  }
+
+  // Rescue any band that rounded away, taking from the largest.
+  bands.forEach((band, i) => {
+    if (band.value === 0 || shares[i] > 0) return;
+    const biggest = shares.indexOf(Math.max(...shares));
+    if (shares[biggest] > 1) {
+      shares[biggest] -= 1;
+      shares[i] += 1;
+    }
+  });
+
+  return bands.flatMap((band, i) => new Array<Tone | null>(shares[i]).fill(band.tone));
+}
+
