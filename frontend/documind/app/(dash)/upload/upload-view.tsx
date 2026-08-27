@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Drag
 import {
   ApiError,
   getDocumentStatus,
+  getInFlightDocuments,
+  reprocessDocuments,
   uploadDocument,
   validateFile,
 } from "@/lib/api";
 import { PIPELINE_STEPS, UPLOAD_LIMITS, WORKSPACE } from "@/lib/mock/data";
 import { useHealth } from "@/lib/use-health";
-import type { UploadJob } from "@/lib/types";
+import type { DocumentSummary, UploadJob } from "@/lib/types";
 import { PipelineTrack } from "@/components/documind/pipeline";
 import { ConfirmDialog, EmptyPanel, InlineError, Spinner, Toaster, useToasts } from "@/components/documind/feedback";
 import { CloudUploadIcon } from "@/components/ui/icons";
@@ -71,6 +73,41 @@ function newJob(file: File): UploadJob {
     elapsedMs: 0,
     stalledMs: 0,
     retries: 0,
+  };
+}
+
+/**
+ * A queue row for a document this tab did not upload.
+ *
+ * Everything the row needs is on the summary except the file, which does not
+ * exist here — so the row can be followed and reprocessed but never re-sent.
+ * `startedAt` is the document's upload time, so the elapsed clock reports how
+ * long it has actually been in the pipeline rather than how long this tab has
+ * known about it.
+ */
+function adoptedJob(doc: DocumentSummary): UploadJob {
+  const now = Date.now();
+  return {
+    id: `adopted_${doc.id}`,
+    name: doc.name,
+    ext: doc.ext,
+    sizeMb: doc.sizeMb,
+    type: doc.type,
+    stage: "processing",
+    uploadPct: 100,
+    step: stepForStatus(doc.status, doc.progress),
+    stepPct: doc.progress?.pct ?? 0,
+    startedAt: doc.uploadedAt,
+    elapsedMs: Math.max(0, now - doc.uploadedAt),
+    retries: 0,
+    docId: doc.id,
+    docStatus: doc.status as UploadJob["docStatus"],
+    adopted: true,
+    // Its silence started before this tab existed, so the stall clock runs
+    // from the upload rather than from now — a document that has been queued
+    // for an hour should say so the moment the page opens.
+    lastChangeAt: doc.uploadedAt,
+    stalledMs: Math.max(0, now - doc.uploadedAt),
   };
 }
 
@@ -143,12 +180,16 @@ function useUploadQueue() {
 
   const send = useCallback(
     async (job: UploadJob) => {
+      // An adopted row has no file in this browser. It should never reach the
+      // admission loop, but a guard here is cheaper than a crash if it does.
+      if (!job.file) return;
+
       const controller = new AbortController();
       controllers.current.set(job.id, controller);
       patch(job.id, { stage: "uploading", uploadPct: 0 });
 
       try {
-        const doc = await uploadDocument(job.file, {
+        const doc = await uploadDocument(job.file!, {
           signal: controller.signal,
           onProgress: (uploadPct) => patch(job.id, { uploadPct }),
         });
@@ -242,6 +283,33 @@ function useUploadQueue() {
     };
   }, [live, patch]);
 
+  // Adopt whatever was already in the pipeline when this tab opened, so the
+  // queue shows the same documents the nav badge is counting. Runs once: after
+  // this, the poll above keeps them current.
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+
+    void getInFlightDocuments(controller.signal)
+      .then((docs) => {
+        if (!live || docs.length === 0) return;
+        setJobs((prev) => {
+          const known = new Set(prev.map((j) => j.docId).filter(Boolean));
+          const fresh = docs.filter((d) => !known.has(d.id)).map(adoptedJob);
+          return fresh.length === 0 ? prev : [...fresh, ...prev];
+        });
+      })
+      .catch(() => {
+        // The queue is still usable for new uploads without this; a failed
+        // adopt is not worth an error state on an empty screen.
+      });
+
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, []);
+
   const add = useCallback((files: File[]) => {
     setJobs((prev) => {
       const room = UPLOAD_LIMITS.maxBatch - prev.length;
@@ -250,13 +318,16 @@ function useUploadQueue() {
   }, []);
 
   /**
-   * Re-uploads the file. There is no reprocess route, so a retry genuinely
-   * creates a new document rather than re-running the old one.
+   * Re-uploads the file, creating a new document.
+   *
+   * Only for rows this tab uploaded. An adopted row has no file to send, so it
+   * offers reprocess instead — which re-runs the document that already exists
+   * rather than making a second copy of it.
    */
   const retry = useCallback((id: string) => {
     setJobs((prev) =>
       prev.map((j) =>
-        j.id === id
+        j.id === id && j.file
           ? {
               ...j,
               stage: "queued",
@@ -273,6 +344,23 @@ function useUploadQueue() {
       ),
     );
     started.current.delete(id);
+  }, []);
+
+  /** Re-runs a document that is already in the library. */
+  const rerun = useCallback(async (id: string, docId: string) => {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === id
+          ? { ...j, error: undefined, stage: "processing", lastChangeAt: Date.now(), stalledMs: 0 }
+          : j,
+      ),
+    );
+    try {
+      await reprocessDocuments([docId]);
+    } catch {
+      // The poll is the source of truth for what happened next; a failed
+      // request just means the document did not move.
+    }
   }, []);
 
   const cancel = useCallback((id: string) => {
@@ -301,11 +389,11 @@ function useUploadQueue() {
     setJobs([]);
   }, []);
 
-  return { jobs, add, retry, cancel, remove, clearFinished, clearAll };
+  return { jobs, add, retry, rerun, cancel, remove, clearFinished, clearAll };
 }
 
 export function UploadView() {
-  const { jobs, add, retry, cancel, remove, clearFinished, clearAll } = useUploadQueue();
+  const { jobs, add, retry, rerun, cancel, remove, clearFinished, clearAll } = useUploadQueue();
   const health = useHealth();
   const [dragging, setDragging] = useState(false);
   const [dragCount, setDragCount] = useState(0);
@@ -723,6 +811,7 @@ export function UploadView() {
               key={job.id}
               job={job}
               onRetry={() => retry(job.id)}
+              onRerun={() => job.docId && void rerun(job.id, job.docId)}
               onCancel={() => cancel(job.id)}
               onRemove={() => remove(job.id)}
             />
@@ -800,11 +889,13 @@ const STAGE_META: Record<UploadJob["stage"], { tone: string; label: (j: UploadJo
 function QueueRow({
   job,
   onRetry,
+  onRerun,
   onCancel,
   onRemove,
 }: {
   job: UploadJob;
   onRetry: () => void;
+  onRerun: () => void;
   onCancel: () => void;
   onRemove: () => void;
 }) {
@@ -872,6 +963,22 @@ function QueueRow({
         >
           {job.name}
         </span>
+        {job.adopted && (
+          <span
+            className="mono"
+            style={{
+              flex: "none",
+              fontSize: 10,
+              color: "var(--text-3)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "1px 6px",
+            }}
+            title="Already in the pipeline when this page opened — not uploaded from this tab."
+          >
+            in library
+          </span>
+        )}
         <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}>
           {job.sizeMb.toFixed(1)} MB
         </span>
@@ -923,7 +1030,11 @@ function QueueRow({
           )}
           {job.stage === "failed" && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              {job.error?.retryable ? (
+              {job.adopted ? (
+                <Button size="dmSm" onClick={onRerun}>
+                  Reprocess
+                </Button>
+              ) : job.error?.retryable ? (
                 <Button size="dmSm" onClick={onRetry}>
                   Retry {PIPELINE_STEPS[Math.max(0, job.step - 1)].toLowerCase()}
                 </Button>
@@ -937,11 +1048,25 @@ function QueueRow({
               </Button>
             </div>
           )}
-          {(job.stage === "uploading" || job.stage === "processing" || job.stage === "queued") && (
-            <Button variant="outlineStrong" size="dmSm" onClick={onCancel} style={{ padding: "0 10px" }}>
-              Cancel
-            </Button>
+          {job.adopted && job.stage === "processing" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {/* No upload is in progress in this tab, so there is nothing to
+                  cancel. Re-running the document is the useful action, and it
+                  is the one that unsticks a document nothing ever claimed. */}
+              <Button size="dmSm" onClick={onRerun}>
+                Reprocess
+              </Button>
+              <Button variant="outlineStrong" size="dmSm" onClick={onRemove} style={{ padding: "0 10px" }}>
+                Dismiss
+              </Button>
+            </div>
           )}
+          {!job.adopted &&
+            (job.stage === "uploading" || job.stage === "processing" || job.stage === "queued") && (
+              <Button variant="outlineStrong" size="dmSm" onClick={onCancel} style={{ padding: "0 10px" }}>
+                Cancel
+              </Button>
+            )}
           {(job.stage === "cancelled" || job.stage === "rejected") && (
             <Button variant="outlineStrong" size="dmSm" onClick={onRemove} style={{ padding: "0 10px" }}>
               Remove

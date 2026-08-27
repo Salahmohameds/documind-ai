@@ -515,6 +515,22 @@ export function getDocumentCounts(signal?: AbortSignal): Promise<DocumentCounts>
   return request<DocumentCounts>("/api/documents/counts", { signal });
 }
 
+/**
+ * Documents still moving through the pipeline, wherever they were uploaded
+ * from.
+ *
+ * The upload queue is per-tab, so on its own it cannot show a document that
+ * another tab started or that was still running when the page was last
+ * reloaded — while the nav badge counts exactly those. This is what closes
+ * that gap.
+ */
+export async function getInFlightDocuments(signal?: AbortSignal): Promise<DocumentSummary[]> {
+  const { rows } = await request<{ rows: DocumentSummary[] }>("/api/documents/in-flight", {
+    signal,
+  });
+  return rows;
+}
+
 /* -- Bulk actions -------------------------------------------------------- */
 
 export type BulkResult = {

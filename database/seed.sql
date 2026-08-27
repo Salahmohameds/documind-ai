@@ -1,8 +1,15 @@
 
+-- INDEXED, not UPLOADED: this file also seeds each of these documents'
+-- extracted fields and risk assessment, so they are finished, not waiting.
+--
+-- Seeding them as UPLOADED made them permanently in-flight. Nothing publishes
+-- a job for a seeded row and neither has a file in storage, so no worker could
+-- ever pick them up -- they sat at "queued" forever, and the nav badge counted
+-- two documents as awaiting analysis on a completely idle system.
 INSERT INTO documents (document_id, filename, document_type, status)
 VALUES
-    ('invoice_sample', 'invoice_sample.txt', 'INVOICE', 'UPLOADED'),
-    ('contract_sample', 'contract_sample.txt', 'CONTRACT', 'UPLOADED')
+    ('invoice_sample', 'invoice_sample.txt', 'INVOICE', 'INDEXED'),
+    ('contract_sample', 'contract_sample.txt', 'CONTRACT', 'INDEXED')
 ON CONFLICT (document_id) DO NOTHING;
 
 INSERT INTO extracted_fields (document_id, fields)

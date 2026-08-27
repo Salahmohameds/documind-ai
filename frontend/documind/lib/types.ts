@@ -152,8 +152,13 @@ export type UploadStage =
 
 export type UploadJob = {
   id: string;
-  /** The file itself, kept so the job can actually be sent and re-sent. */
-  file: File;
+  /**
+   * The file itself, kept so the job can actually be sent and re-sent.
+   *
+   * Absent on an adopted job: a document that was already in the pipeline when
+   * this tab opened has no File behind it, only an id to follow.
+   */
+  file?: File;
   name: string;
   ext: string;
   sizeMb: number;
@@ -181,6 +186,13 @@ export type UploadJob = {
    * no worker has claimed it.
    */
   docStatus?: "queued" | "processing" | "completed" | "failed";
+  /**
+   * True when this row was picked up from the server rather than uploaded here.
+   *
+   * Such a row can be followed and reprocessed but never re-sent — there is no
+   * file in this browser to send.
+   */
+  adopted?: boolean;
   /** When the pipeline last reported anything new about this document. */
   lastChangeAt?: number;
   /**
