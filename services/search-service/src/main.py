@@ -9,9 +9,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .config import Config
-from app_instrumentation.logging_setup import configure_logging
-from app_instrumentation.otel_setup import setup_tracing, setup_metrics
-from app_instrumentation.request_id_middleware import RequestIDMiddleware, get_request_id
+from .instrumentation import (
+    configure_logging,
+    setup_tracing,
+    setup_metrics,
+    RequestIDMiddleware,
+    get_request_id,
+)
 from .search import index_document as _index_document, search as _search
 
 SERVICE_NAME = "search-service"
