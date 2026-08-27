@@ -23,7 +23,7 @@ import { clearSessionCookie, readSessionToken } from "@/lib/server/session";
  * else.
  */
 export const GATEWAY_URL = (
-  process.env.GATEWAY_URL ?? "http://localhost:8011"
+  process.env.GATEWAY_URL ?? "http://localhost:8000"
 ).replace(/\/+$/, "");
 
 /**

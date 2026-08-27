@@ -2,8 +2,12 @@
 
 **Date:** 2026-08-27
 **Context:** The frontend now routes all traffic through `api-gateway`. Doing that
-surfaced three issues in services owned by other people. Two are written up here
-for a decision rather than fixed; one is fixed on a branch awaiting review.
+surfaced several issues in services owned by other people. Most are written up
+here for a decision rather than fixed; one is fixed on a branch awaiting review.
+
+`scripts/run-local.ps1` starts the whole stack on Windows with the environment
+each service actually needs — it is the executable version of the
+configuration notes in items 3c and below.
 
 Nothing in this document has been merged to `main`.
 
@@ -140,6 +144,39 @@ ModuleNotFoundError: No module named 'app_instrumentation'
 on the path. Docker Compose sets this up; a local `uvicorn` from
 `services/search-service` does not. **Not fixed as part of this work** —
 flagging it because it blocks running the service's tests locally.
+
+---
+
+## 3a. `document-service` — computed analysis is never returned (Salem)
+
+**Status:** not started, the largest single gap
+
+The pipeline works. A document uploaded through the Gateway completes in ~1.3s
+and writes real results to four tables:
+
+```
+extracted_fields    1 row
+risk_assessments    1 row   (risk_score 8, financial Low, legal Low)
+document_summaries  1 row
+document_chunks     1 row   (indexed, and searchable)
+```
+
+**`document-service` reads none of them.** It maps only the `documents` table,
+so `GET /documents/{id}` answers with `risk: null`, `pages: 0`, `fields: []`,
+`pii: []`, `classification: null` for a document that has all of it on disk.
+
+The response schemas already exist and already match the frontend types
+(`ExtractedFieldSchema`, `RiskCategorySchema`, `ClassificationSchema` in
+`app/schemas.py`) — they are simply never populated. `_summary()` hardcodes
+`risk=None` and `pages=0`.
+
+The visible cost: the document detail page, the risk column in the library, the
+extracted-fields panel and the PII panel are all permanently empty even after a
+completely successful run. It reads as "the AI does nothing", when in fact the
+AI has already done the work and the answer is sitting in Postgres.
+
+This is a read-side change in `document-service` — a repository method per
+table and a wider `get()`. No migration, no change to any other service.
 
 ---
 
