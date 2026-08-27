@@ -1,9 +1,15 @@
+# Canonical namespace-wide default-deny. This is the ONLY default-deny-all
+# object in the namespace — per-service NetworkPolicy files (e.g.
+# processing-service-networkpolicy.yaml) must define only their own named,
+# selector-scoped allow rules, not a second copy of this policy, since two
+# objects with the same name/namespace collide/overwrite each other on apply.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-all
-  namespace: documind 
+  namespace: documind
 spec:
-  podSelector: {} 
+  podSelector: {}
   policyTypes:
   - Ingress
+  - Egress

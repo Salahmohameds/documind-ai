@@ -50,7 +50,18 @@ locals {
 }
 
 # ------------------------------------------------------- dynamic groups ----
+# OWNERSHIP: dynamic groups are tenancy-scoped IAM resources. On this
+# project the tenancy administrator (not the deployment user) creates and
+# owns dm-demo-dg-oke-nodes / dm-demo-dg-workloads by hand, using the exact
+# names/rules generated below. Terraform only creates these resources when
+# var.manage_dynamic_groups = true (default false for this project) so
+# `terraform apply` never attempts to create, and never conflicts with,
+# admin-managed groups. The policies further down reference the groups by
+# name only, so they work identically whether Terraform or the admin owns
+# the underlying dynamic-group resource.
 resource "oci_identity_dynamic_group" "oke_nodes" {
+  count = var.manage_dynamic_groups ? 1 : 0
+
   compartment_id = var.tenancy_id
   name           = local.nodes_group_name
   description    = "OKE worker node instances in ${var.compartment_id}"
@@ -59,6 +70,8 @@ resource "oci_identity_dynamic_group" "oke_nodes" {
 }
 
 resource "oci_identity_dynamic_group" "oke_workloads" {
+  count = var.manage_dynamic_groups ? 1 : 0
+
   compartment_id = var.tenancy_id
   name           = local.workloads_group_name
   description    = "DocuMind pods running under OKE Workload Identity"

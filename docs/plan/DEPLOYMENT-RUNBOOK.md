@@ -22,7 +22,7 @@ Burst starts **only if every box is checked** (from TIMELINE.md M2):
 ## 1. Day 1 — Infrastructure up (role 1, role 2 assists)
 
 ```powershell
-cd terraform/environments/dev
+cd terraform/environments/demo
 terraform init -reconfigure
 terraform apply tfplan          # plan already reviewed pre-burst
 ```

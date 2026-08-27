@@ -159,15 +159,42 @@ variable "oke_endpoint_public" {
 }
 
 variable "oke_cluster_type" {
-  description = "BASIC_CLUSTER keeps cost minimal; ENHANCED_CLUSTER enables OKE Workload Identity."
+  description = <<-EOT
+    BASIC_CLUSTER keeps cost minimal; ENHANCED_CLUSTER enables OKE
+    Workload Identity (pod-level resource principals).
+
+    This demo's pods (ai-service, processing-service, document-service)
+    authenticate to Object Storage / OCI Generative AI / Vault as the
+    dm-demo-dg-workloads dynamic group via OKE Workload Identity, which
+    Oracle only supports on Enhanced Clusters -- a Basic Cluster would
+    accept the same IAM policy/dynamic-group configuration but pods would
+    never actually receive credentials, so all those calls would fail
+    auth regardless of how correct the IAM policies are. Defaulting to
+    ENHANCED_CLUSTER here is required for this project's runtime AI/
+    storage/secrets access to work, not just a hardening choice.
+  EOT
 
   type    = string
-  default = "BASIC_CLUSTER"
+  default = "ENHANCED_CLUSTER"
 
   validation {
     condition     = contains(["BASIC_CLUSTER", "ENHANCED_CLUSTER"], var.oke_cluster_type)
     error_message = "oke_cluster_type must be BASIC_CLUSTER or ENHANCED_CLUSTER."
   }
+}
+
+variable "manage_dynamic_groups" {
+  description = <<-EOT
+    Passed through to module.iam. Keep false: the tenancy administrator
+    (Eng. Belal) already created dm-demo-dg-oke-nodes and
+    dm-demo-dg-workloads by hand with the matching rules this project
+    expects, and the deployment user has no tenancy-level dynamic-group
+    permissions (confirmed: `oci iam dynamic-group list` returns 404 for
+    this identity). Only set true if a future deployment identity
+    genuinely has tenancy-level IAM rights and should own these groups.
+  EOT
+  type        = bool
+  default     = false
 }
 
 variable "kubernetes_version" {
@@ -356,7 +383,14 @@ variable "db_enable_daily_backups" {
 # ---------------------------------------------------------------------------
 
 variable "ocir_namespace" {
-  description = "OCIR namespace prefix override. Empty uses the tenancy namespace."
+  description = <<-EOT
+    OCIR repository-path prefix override. Empty (the default) uses
+    "<tenancy Object Storage namespace>/documind", matching every
+    Kubernetes Deployment manifest's image path
+    (REGION.ocir.io/NAMESPACE/documind/<service>:TAG). Set this only if you
+    need a different prefix -- and update the image paths in kubernetes/
+    to match.
+  EOT
   type        = string
   default     = ""
 }

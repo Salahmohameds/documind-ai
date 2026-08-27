@@ -1,0 +1,34 @@
+# Public entry point for the web UI — a `type: LoadBalancer` Service,
+# provisioned by OKE's cloud-controller-manager as a real OCI Load Balancer,
+# same pattern as api-gateway-service.yaml (ADR-009: Kubernetes owns this
+# LB's lifecycle, not Terraform).
+#
+# This is a SECOND public LoadBalancer alongside api-gateway's (two OCI LBs
+# during the burst, not one) because the frontend's own /api/* route
+# handlers call document-service/search-service/ai-service directly today
+# rather than through api-gateway (see frontend-deployment.yaml's comment
+# and ADR-001). If that gap is fixed before the burst so the browser only
+# ever talks to api-gateway, this Service can become ClusterIP and the app
+# reached at api-gateway's LB instead, halving the LB cost.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: documind
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "10"
+    service.beta.kubernetes.io/oci-load-balancer-subnet1: "REPLACE_WITH_PUBLIC_LB_SUBNET_OCID"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

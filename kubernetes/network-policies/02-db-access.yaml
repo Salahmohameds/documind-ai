@@ -1,3 +1,10 @@
+# PostgreSQL is TEMPORARILY in-cluster (kubernetes/statefulsets/postgres-statefulset.yaml)
+# because the OCI-managed instance (terraform: enable_database=true) hit the
+# dbsystem-count service limit during the burst -- see that file's header.
+# This policy is live and restricts ingress to exactly the three services
+# below; the per-service egress rules in each service's own NetworkPolicy
+# (also targeting app.kubernetes.io/name: postgres) are what make the
+# connection actually work end-to-end.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -6,17 +13,20 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: postgres
+      app.kubernetes.io/name: postgres
   policyTypes:
   - Ingress
   ingress:
   - from:
     - podSelector:
         matchLabels:
-          app: document-service
+          app.kubernetes.io/name: document-service
     - podSelector:
         matchLabels:
-          app: search-service
+          app.kubernetes.io/name: search-service
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: processing-service
     ports:
     - protocol: TCP
       port: 5432

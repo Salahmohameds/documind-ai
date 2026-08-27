@@ -13,14 +13,24 @@ admin_cidrs = ["203.0.113.7/32"]
 enable_oke = true
 
 # Minimal burst footprint; scale node_pools after quota is confirmed.
-# Workload identity requires ENHANCED_CLUSTER:
-#   oke_cluster_type = "ENHANCED_CLUSTER"
+# oke_cluster_type defaults to ENHANCED_CLUSTER (see variables.tf) because
+# ai-service/document-service/processing-service authenticate to Object
+# Storage/GenAI/Vault as pods via OKE Workload Identity, which requires an
+# Enhanced Cluster. Only override to BASIC_CLUSTER if you are deploying
+# without real OCI-backed AI/storage (e.g. AI_BACKEND=mock everywhere).
+#   oke_cluster_type = "BASIC_CLUSTER"
+
+# Dynamic groups (dm-demo-dg-oke-nodes / dm-demo-dg-workloads) are created
+# by the tenancy administrator, not by this Terraform. Leave this false.
+manage_dynamic_groups = false
 
 enable_monitoring = true
 alert_emails      = ["you@example.com"]
 
-# Database is quota-sensitive: enable during the burst only if preflight PASS.
-enable_database = false
+# Set true for the burst so search-service has real pgvector storage
+# instead of falling back to its in-memory vector store; confirm OCI
+# PostgreSQL quota via preflight first (it's quota-sensitive).
+enable_database = true
 db_password_mode = "PLAIN_TEXT" # throwaway demo; VAULT_SECRET preferred
 db_admin_password = "CHANGE-ME-12aA"
 

@@ -1,0 +1,105 @@
+# In-cluster Redis for document-service -> processing-service's Redis
+# Streams queue (ADR-004). There is no OCI-managed Redis in this project's
+# scope, so this MUST run in-cluster -- unlike Postgres, there is no managed
+# alternative to fall back to.
+#
+# Single replica, no clustering/Sentinel: proportionate to a 3-day demo
+# burst, not a production HA requirement. AOF persistence is enabled
+# (ADR-004: "Redis durability is now on the critical path for job delivery")
+# so a pod restart does not silently drop unacknowledged queue state.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: documind
+    app.kubernetes.io/component: queue
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: documind
+        app.kubernetes.io/component: queue
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          # Fully qualified: this OKE node's CRI-O runs with
+          # short-name-mode=enforcing, which rejects an unqualified name
+          # like "redis:7-alpine" as ambiguous across configured search
+          # registries -- confirmed via a real pull failure.
+          image: docker.io/library/redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          args:
+            - --appendonly
+            - "yes"
+            - --requirepass
+            - $(REDIS_PASSWORD)
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: redis-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/part-of: documind
+      spec:
+        storageClassName: oci-bv-paravirtualized
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

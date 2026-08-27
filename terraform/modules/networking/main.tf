@@ -192,8 +192,8 @@ resource "oci_core_network_security_group_security_rule" "this" {
 
   source           = each.value.direction == "INGRESS" ? (each.value.src_kind == "nsg" ? oci_core_network_security_group.this[each.value.src].id : each.value.src) : null
   source_type      = each.value.direction == "INGRESS" ? (each.value.src_kind == "nsg" ? "NETWORK_SECURITY_GROUP" : "CIDR_BLOCK") : null
-  destination      = each.value.direction == "EGRESS" ? (each.value.dst_kind == "nsg" ? oci_core_network_security_group.this[each.value.dst].id : each.value.src) : null
-  destination_type = each.value.direction == "EGRESS" ? (each.value.dst_kind == "nsg" ? "NETWORK_SECURITY_GROUP" : (each.value.src_kind == "service" ? "SERVICE_CIDR_BLOCK" : "CIDR_BLOCK")) : null
+  destination      = each.value.direction == "EGRESS" ? (try(each.value.dst_kind, null) == "nsg" ? oci_core_network_security_group.this[each.value.dst].id : each.value.src) : null
+  destination_type = each.value.direction == "EGRESS" ? (try(each.value.dst_kind, null) == "nsg" ? "NETWORK_SECURITY_GROUP" : (each.value.src_kind == "service" ? "SERVICE_CIDR_BLOCK" : "CIDR_BLOCK")) : null
 
   dynamic "tcp_options" {
     for_each = each.value.protocol == "6" && try(each.value.ports, null) != null ? [1] : []

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: documind
+data:
+  # --- Application ---------------------------------------------------------
+  # api-gateway's Dockerfile hardcodes ENV PORT=8000 and EXPOSE 8000 -- the
+  # app/config.py default of 8080 is never actually used at runtime, so this
+  # MUST be 8000 to match the container's real listen port.
+  PORT: "8000"
+  SERVICE_NAME: "api-gateway"
+  LOG_LEVEL: "INFO"
+
+  # --- JWT ------------------------------------------------------------------
+  # JWT_SECRET lives in the Secret; must match search-service's JWT_SECRET
+  # since both validate the same tokens (HS256, shared-secret scheme, no
+  # separate signing service in this project).
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRATION_HOURS: "24"
+
+  # --- Downstream services ---------------------------------------------------
+  SEARCH_SERVICE_URL: "http://search-service.documind.svc.cluster.local:8080"
+  DOCUMENT_SERVICE_URL: "http://document-service.documind.svc.cluster.local:8080"
+  AI_SERVICE_URL: "http://ai-service.documind.svc.cluster.local:8080"

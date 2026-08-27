@@ -1,0 +1,16 @@
+# Keeps the public entry point available during a voluntary disruption
+# (node drain, cluster upgrade). Without this, draining a node could evict
+# both api-gateway replicas at once and take the whole app offline.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: documind
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway

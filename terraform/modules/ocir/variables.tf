@@ -27,6 +27,7 @@ variable "service_names" {
     "processing-service",
     "ai-service",
     "search-service",
+    "frontend",
   ]
 }
 
@@ -34,10 +35,15 @@ variable "is_immutable" {
   description = <<-EOT
     Immutable repositories reject overwriting an existing tag. CI pushes
     git-SHA tags, so immutability is safe and prevents accidental :latest
-    drift. Set false only for throwaway experiments.
+    drift -- however, `CreateContainerRepository` in this region/tenancy
+    currently rejects the isImmutable field outright (confirmed: 400
+    BAD_REQUEST "Setting isImmutable is not currently supported" on first
+    apply), so this defaults to false for now. Tag discipline is still
+    enforced independently: no Kubernetes manifest or CI workflow in this
+    repo ever references ':latest'. Flip to true once OCI supports it here.
   EOT
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "is_public" {

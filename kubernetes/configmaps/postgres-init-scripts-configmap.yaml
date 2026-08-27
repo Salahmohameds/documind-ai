@@ -1,0 +1,74 @@
+# TEMPORARY in-cluster PostgreSQL, mirroring docker-compose.yml's
+# /docker-entrypoint-initdb.d/ pattern (schema.sql + 002_processing_jobs.sql,
+# no seed data). This substitutes for the intended OCI-managed PostgreSQL
+# (terraform/modules/database, enable_database=true) only because the
+# dbsystem-count service limit was hit during the burst -- ADMIN ACTION
+# REQUIRED: request a limit increase, then migrate to the managed instance
+# and remove this StatefulSet + these two ConfigMaps.
+apiVersion: v1
+data:
+  01-schema.sql: "\r\nCREATE EXTENSION IF NOT EXISTS vector;\r\n\r\nCREATE TABLE IF
+    NOT EXISTS documents (\r\n    document_id     TEXT PRIMARY KEY,\r\n    filename
+    \       TEXT NOT NULL,\r\n    document_type   TEXT CHECK (document_type IN ('INVOICE',
+    'CONTRACT', 'UNKNOWN')) DEFAULT 'UNKNOWN',\r\n    status          TEXT CHECK (status
+    IN ('UPLOADED', 'PROCESSING', 'INDEXED', 'FAILED')) DEFAULT 'UPLOADED',\r\n    uploaded_at
+    \    TIMESTAMPTZ DEFAULT now(),\r\n    indexed_at      TIMESTAMPTZ\r\n);\r\n\r\n\r\nCREATE
+    TABLE IF NOT EXISTS document_chunks (\r\n    id              SERIAL PRIMARY KEY,\r\n
+    \   chunk_id        TEXT UNIQUE NOT NULL,\r\n    document_id     TEXT NOT NULL
+    REFERENCES documents(document_id) ON DELETE CASCADE,\r\n    chunk_index     INT
+    NOT NULL DEFAULT 0,\r\n    page            INT,\r\n    text            TEXT NOT
+    NULL,\r\n    embedding       VECTOR(384) NOT NULL,\r\n    created_at      TIMESTAMPTZ
+    DEFAULT now()\r\n);\r\n\r\n\r\n\r\nCREATE INDEX IF NOT EXISTS idx_document_chunks_document_id\r\n
+    \   ON document_chunks (document_id);\r\n\r\n\r\nCREATE TABLE IF NOT EXISTS extracted_fields
+    (\r\n    document_id     TEXT PRIMARY KEY REFERENCES documents(document_id) ON
+    DELETE CASCADE,\r\n    fields          JSONB NOT NULL,\r\n    extracted_at    TIMESTAMPTZ
+    DEFAULT now()\r\n);\r\n\r\n\r\nCREATE TABLE IF NOT EXISTS risk_assessments (\r\n
+    \   document_id       TEXT PRIMARY KEY REFERENCES documents(document_id) ON DELETE
+    CASCADE,\r\n    risk_score         INT CHECK (risk_score BETWEEN 0 AND 100),\r\n
+    \   financial_risk      TEXT CHECK (financial_risk IN ('Low', 'Medium', 'High')),\r\n
+    \   legal_risk           TEXT CHECK (legal_risk IN ('Low', 'Medium', 'High')),\r\n
+    \   operational_risk    TEXT CHECK (operational_risk IN ('Low', 'Medium', 'High')),\r\n
+    \   risk_reasons        JSONB,\r\n    assessed_at         TIMESTAMPTZ DEFAULT
+    now()\r\n);\r\n\r\n\r\n"
+  02-processing.sql: "-- 002 — processing-service job ledger and summary storage.\r\n--\r\n--
+    Deliberately additive. The `documents` CHECK constraint is NOT touched:\r\n--
+    document-service maps its lifecycle onto the existing uppercase values\r\n-- (queued→UPLOADED,
+    processing→PROCESSING, completed→INDEXED, failed→FAILED)\r\n-- in app/repositories/documents.py,
+    and widening the constraint here would\r\n-- require that service to change in
+    lockstep. The richer job lifecycle the\r\n-- frontend needs — attempt counts,
+    error detail, durations — lives in\r\n-- processing_jobs instead, keyed by the
+    job id.\r\n\r\nCREATE TABLE IF NOT EXISTS processing_jobs (\r\n    -- The Redis
+    stream message id (e.g. '1724692800000-0'). Redis assigns it,\r\n    -- it is
+    unique and monotonic, and it is stable across redelivery — which\r\n    -- is
+    exactly what makes it usable as the idempotency key. A worker that\r\n    -- receives
+    the same message twice writes the same primary key twice.\r\n    job_id          TEXT
+    PRIMARY KEY,\r\n    document_id     TEXT NOT NULL REFERENCES documents(document_id)
+    ON DELETE CASCADE,\r\n    -- Nullable: there is no auth/user model in M1. The
+    consumer reads the\r\n    -- field from the event when the producer starts sending
+    it.\r\n    user_id         TEXT,\r\n    status          TEXT NOT NULL\r\n                    CHECK
+    (status IN ('QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED')),\r\n    -- Redis delivery
+    count. >1 means this job was reclaimed from a worker\r\n    -- that died or timed
+    out holding it.\r\n    attempt         INT NOT NULL DEFAULT 1,\r\n    -- The consumer
+    that last held the job — the pod name under Kubernetes,\r\n    -- so a failed
+    job can be traced back to a specific pod's logs.\r\n    consumer_name   TEXT,\r\n
+    \   stage           TEXT,\r\n    error_code      TEXT,\r\n    error_message   TEXT,\r\n
+    \   -- True when the pipeline completed but at least one AI response came back\r\n
+    \   -- with meta.degraded — a local fallback rather than a healthy model call.\r\n
+    \   -- Completed-with-caveats is a different outcome from completed.\r\n    degraded
+    \       BOOLEAN NOT NULL DEFAULT FALSE,\r\n    queued_at       TIMESTAMPTZ NOT
+    NULL DEFAULT now(),\r\n    started_at      TIMESTAMPTZ,\r\n    finished_at     TIMESTAMPTZ,\r\n
+    \   duration_ms     INT\r\n);\r\n\r\nCREATE INDEX IF NOT EXISTS idx_processing_jobs_document_id\r\n
+    \   ON processing_jobs (document_id);\r\n\r\nCREATE INDEX IF NOT EXISTS idx_processing_jobs_status\r\n
+    \   ON processing_jobs (status);\r\n\r\n\r\n-- ai-service /summarize had no home
+    in the schema; every other AI output\r\n-- (fields, risk, chunks) already has
+    a table.\r\nCREATE TABLE IF NOT EXISTS document_summaries (\r\n    document_id
+    \    TEXT PRIMARY KEY REFERENCES documents(document_id) ON DELETE CASCADE,\r\n
+    \   summary         TEXT NOT NULL,\r\n    key_points      JSONB,\r\n    style
+    \          TEXT,\r\n    summarized_at   TIMESTAMPTZ DEFAULT now()\r\n);\r\n"
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: documind

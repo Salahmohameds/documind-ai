@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-service-config
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: ai-service
+    app.kubernetes.io/part-of: documind
+data:
+  # --- Application ---------------------------------------------------------
+  PORT: "8080"
+  SERVICE_NAME: "ai-service"
+  LOG_LEVEL: "INFO"
+
+  # --- Provider selection ----------------------------------------------------
+  # "mock" is the safe default -- starts and passes health checks with no OCI
+  # credential and no network access. For a REAL (non-mock) demo, override
+  # AI_BACKEND to "oci" here and fill in the OCI_* values below; do NOT use
+  # "openai_compat" in this cluster (ADR-006 contingency only -- it sends
+  # document text to an external, non-OCI API and needs an OPENAI_API_KEY
+  # Secret + NAT egress most deployments should not open).
+  AI_BACKEND: "mock"
+  MODEL_NAME: "mock-chat-v1"
+  EMBEDDING_MODEL: "mock-embed-v1"
+  EMBEDDING_DIM: "384"
+
+  # --- OCI Generative AI (only used when AI_BACKEND=oci) ---------------------
+  # Compartments are global in OCI; the client is separately pointed at a
+  # *region endpoint*. me-jeddah-1 does not host Generative AI (confirmed via
+  # `oci generative-ai model-collection list-models` -> 404) -- OCI_REGION
+  # here must be a region that does (e.g. me-riyadh-1; verify with the tenancy
+  # admin which region/model IDs are actually enabled before the burst). See
+  # ADR-006 and app/adapters/oci_genai.py.
+  OCI_REGION: ""
+  OCI_COMPARTMENT_ID: ""
+  # Authentication is OKE workload identity -- no credential mounted anywhere.
+  OCI_AUTH_MODE: "workload"
+  OCI_SERVING_MODE: "ON_DEMAND"
+
+  # --- Security ----------------------------------------------------------
+  REDACT_BEFORE_EGRESS: "true"

@@ -1,0 +1,29 @@
+# Public entry point — a `type: LoadBalancer` Service, provisioned by OKE's
+# cloud-controller-manager as a real OCI Load Balancer. Per ADR-009,
+# Kubernetes (not Terraform) owns this LB's lifecycle; Terraform only
+# provisions the public subnet/NSG it lands in.
+#
+# This is the ONLY externally-reachable Service in the namespace — every
+# other backend service is ClusterIP-only and reached through api-gateway.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: documind
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: documind
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "10"
+    service.beta.kubernetes.io/oci-load-balancer-subnet1: "REPLACE_WITH_PUBLIC_LB_SUBNET_OCID"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: api-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
