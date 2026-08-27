@@ -56,7 +56,19 @@ export type PiiFinding = {
   page: number;
 };
 
-export type RiskCategory = { name: string; score: number };
+export type RiskCategory = {
+  name: string;
+  score: number;
+  /**
+   * The band ai-service actually decided.
+   *
+   * Per-category risk is derived from which rules fired, not scored, so the
+   * band is the measurement and `score` is a stand-in positioned inside the
+   * band's range so threshold logic still works. Shown in preference to the
+   * number wherever it is present.
+   */
+  band?: string | null;
+};
 
 export type Finding = {
   id: string;

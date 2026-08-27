@@ -70,11 +70,17 @@ export function DocumentDetailView({ id }: { id: string }) {
     const t = setInterval(async () => {
       try {
         const next = await getDocumentStatus(id, controller.signal);
-        setDoc((prev) =>
-          prev.status === next.status
-            ? { ...prev, progress: next.progress ?? undefined }
-            : prev,
-        );
+        // Reflect every transition, not only progress within one. Returning
+        // the previous state on a change left a document that had moved from
+        // queued to processing still rendering as queued, because the reload
+        // below only fires once it leaves the pipeline entirely.
+        setDoc((prev) => ({
+          ...prev,
+          status: next.status,
+          progress: next.progress ?? undefined,
+        }));
+        // Settled: re-read the whole document, because this is the moment the
+        // analysis it produced becomes readable.
         if (next.status !== "processing" && next.status !== "queued") reloadDoc();
       } catch {
         // A failed poll is not worth surfacing — the next tick retries, and
@@ -634,7 +640,11 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
           <Stagger delay={0.1} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(148px,1fr))", gap: 14 }}>
             {detail.riskCategories.map((cat) => {
               const ct = riskTone(cat.score);
-              const level = cat.score <= 33 ? "Low" : cat.score <= 66 ? "Medium" : "High";
+              // The band is what ai-service actually decided; the score is a
+              // stand-in placed inside that band so the tone and the bar still
+              // work. Prefer the band so the card does not claim a precision
+              // nothing measured.
+              const level = cat.band ?? (cat.score <= 33 ? "Low" : cat.score <= 66 ? "Medium" : "High");
               return (
                 <Anim
                   key={cat.name}
@@ -651,7 +661,7 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{cat.name}</span>
                     <span className="mono" style={{ marginLeft: "auto", fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                      {cat.score}
+                      {cat.band ?? cat.score}
                     </span>
                   </div>
                   <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
