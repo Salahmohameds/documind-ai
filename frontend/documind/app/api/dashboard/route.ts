@@ -101,12 +101,8 @@ function buildDashboard(all: DocumentSummary[], range: DateRange): Dashboard {
 
   return {
     kpis,
-    flagged: all
-      .filter(
-        (d) => d.verdict === "Needs review" || d.status === "failed" || d.status === "processing",
-      )
-      .slice(0, 6),
-    exceptions: exceptionBreakdown(failedNow),
+    flagged: needingAttention(current),
+    exceptions: exceptionBreakdown(current),
     gauge: riskGauge(scored),
     series: volumeSeries(current, days, now),
     axis: axisLabels(days, now),
@@ -149,20 +145,75 @@ function delta(now: number, before: number, polarity: "more-is-good" | "less-is-
 }
 
 /** Failure counts grouped by the error the pipeline reported, as a share of all failures. */
-function exceptionBreakdown(failed: DocumentSummary[]): [string, number][] {
-  if (failed.length === 0) return [];
+/** How many rows the flagged panel shows before "View all" takes over. */
+const FLAGGED_LIMIT = 6;
 
+/**
+ * The documents an operator should look at, worst first.
+ *
+ * Scoped to the selected period, because the panel says "in this period" and
+ * used to quietly read the whole library instead.
+ *
+ * Everything at or above the elevated threshold counts, not only the high-risk
+ * ones: a dashboard reporting six elevated documents beside an empty "nothing
+ * flagged" panel is describing two different libraries. A document that failed
+ * needs attention for a different reason and belongs here too.
+ */
+function needingAttention(docs: DocumentSummary[]): DocumentSummary[] {
+  const flagged = docs.filter(
+    (d) =>
+      d.status === "failed" ||
+      d.status === "processing" ||
+      (d.risk !== null && d.risk >= ELEVATED_RISK),
+  );
+
+  // A failure outranks any score: it has no result at all, where even a
+  // high-risk document has been read and understood.
+  const rank = (d: DocumentSummary) => (d.status === "failed" ? Infinity : (d.risk ?? 0));
+  flagged.sort((a, b) => rank(b) - rank(a));
+
+  return flagged.slice(0, FLAGGED_LIMIT);
+}
+
+/**
+ * What is wrong with the flagged documents, most common first.
+ *
+ * Counts failures by their reported cause and risky documents by their band.
+ * It used to count failures alone, so a library with eight elevated documents
+ * and no failures reported "no exceptions were raised" — which read as an
+ * all-clear rather than as "nothing crashed".
+ */
+function exceptionBreakdown(docs: DocumentSummary[]): [string, number][] {
   const counts = new Map<string, number>();
-  for (const doc of failed) {
-    const label = doc.error?.title ?? "Unclassified failure";
+  let total = 0;
+
+  for (const doc of docs) {
+    let label: string | null = null;
+
+    if (doc.status === "failed") {
+      label = doc.error?.title ?? "Unclassified failure";
+    } else if (doc.risk !== null && doc.risk >= HIGH_RISK) {
+      label = "High risk";
+    } else if (doc.risk !== null && doc.risk >= ELEVATED_RISK) {
+      label = "Elevated risk";
+    }
+
+    if (label === null) continue;
     counts.set(label, (counts.get(label) ?? 0) + 1);
+    total += 1;
   }
 
+  if (total === 0) return [];
+
+  // A share of the flagged documents, not of the library: "60% elevated" means
+  // most of what needs attention is elevated, which is the question this panel
+  // is answering.
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
-    .map(([label, n]) => [label, Math.round((n / failed.length) * 100)] as [string, number]);
+    .map(([label, n]) => [label, Math.round((n / total) * 100)] as [string, number]);
 }
+
 
 function riskGauge(scored: DocumentSummary[]): Dashboard["gauge"] {
   const low = scored.filter((d) => (d.risk ?? 0) < ELEVATED_RISK).length;
