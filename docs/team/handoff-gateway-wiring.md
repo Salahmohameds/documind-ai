@@ -143,6 +143,61 @@ flagging it because it blocks running the service's tests locally.
 
 ---
 
+## 3b. `document-service` — no per-stage progress (Salem)
+
+**Status:** not started, small
+
+`GET /documents/{id}/status` returns `progress: null` on every document, always.
+The schema has the field (`ProgressSchema`) and the upload screen renders it,
+but nothing populates it.
+
+`processing-service` already knows the answer: `processing_jobs.stage` holds
+`extract_text | classify | extract | pii | risk | index | complete` throughout
+the run. It is simply never surfaced through `document-service`.
+
+The consequence is that the seven-step pipeline track on `/upload` cannot move.
+It can only show queued / processing / done, so a document that is genuinely
+being worked on and one whose worker has died look identical. The frontend now
+detects the second case by measuring how long the status has been unchanged,
+which works but is inference — reading `stage` would be the real answer.
+
+**Also:** a document whose job has permanently failed does not always follow.
+Observed during testing: `documents.status = 'PROCESSING'` with the matching
+`processing_jobs` row at `FAILED`, attempt 3. The document stays "processing"
+forever from the UI's point of view.
+
+---
+
+## 3c. `processing-service` — Docker DNS defaults break local runs (Salem)
+
+**Status:** configuration, no code change needed
+
+`app/config.py` defaults to Compose service names:
+
+```python
+ai_service_url:     str = "http://ai-service:8080"
+search_service_url: str = "http://search-service:8080"
+```
+
+Run outside Compose and neither resolves. Observed effect: classification,
+extraction, PII and risk all succeed (because `AI_SERVICE_URL` was exported in
+that shell), then the run dies at the last stage:
+
+```
+stage=index  ERR_UPSTREAM_UNAVAILABLE
+"search-service index transport error: All connection attempts failed"
+```
+
+It retries three times and the document ends `failed` — after a long stretch at
+`queued` that looks like a hang.
+
+Fix is to export `SEARCH_SERVICE_URL` alongside `AI_SERVICE_URL` when running
+locally. Worth considering a `.env.example` in `services/processing-service/`
+so the pair is discoverable, since getting one and not the other produces a
+failure that looks like a stalled queue rather than a misconfiguration.
+
+---
+
 ## 4. Network boundary — nothing restricts direct service access (Salem + Adel)
 
 **Status:** planned, last, highest blast radius
