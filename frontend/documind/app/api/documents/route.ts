@@ -1,16 +1,19 @@
 /**
  * The document library.
  *
- * `GET`  — the library, with search/filter/sort/pagination applied here
- *          because document-service does not yet accept them (see
- *          `lib/server/documents.ts`).
- * `POST` — a multipart upload, streamed straight through to document-service,
- *          which validates the PDF, stores it and publishes the processing job.
+ * `GET`    — the library, with search/filter/sort/pagination applied here
+ *            because document-service does not yet accept them (see
+ *            `lib/server/documents.ts`).
+ * `POST`   — a multipart upload, streamed through to document-service, which
+ *            validates the PDF, stores it and publishes the processing job.
+ * `DELETE` — bulk delete. Collection-level and body-carrying, matching the
+ *            upstream contract: `{ids: […]}` in, a `BulkResult` out.
  */
 
 import type { NextRequest } from "next/server";
-import { DOCUMENT_SERVICE_URL, call, envelope, errorResponse, handle } from "@/lib/server/backend";
+import { call, envelope, errorResponse, handle } from "@/lib/server/backend";
 import { applyQuery, fetchAllDocuments, parseDocumentQuery } from "@/lib/server/documents";
+import { readBulkIds, type BulkResult } from "@/lib/server/bulk";
 import type { DocumentSummary } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -43,14 +46,42 @@ export async function POST(request: NextRequest) {
     const upstream = new FormData();
     upstream.append("file", file, file.name);
 
-    const created = await call<DocumentSummary>(DOCUMENT_SERVICE_URL, "/documents", {
+    const created = await call<DocumentSummary>("documents", "/documents", {
       method: "POST",
       body: upstream,
       signal: request.signal,
     });
 
-    // 202: document-service has stored the file and queued the job; analysis
-    // has not run yet. The client polls `/status` from here.
+    // 202: the file is stored and the job is queued; analysis has not run yet.
+    // The client polls `/status` from here.
     return Response.json(created, { status: 202 });
   });
+}
+
+export async function DELETE(request: NextRequest) {
+  return handle(async () => {
+    const ids = await readBulkIds(request);
+    if (ids === null) return badBulkBody();
+
+    const result = await call<BulkResult>("documents", "/documents", {
+      method: "DELETE",
+      body: JSON.stringify({ ids }),
+      headers: { "Content-Type": "application/json" },
+      signal: request.signal,
+    });
+
+    return Response.json(result);
+  });
+}
+
+function badBulkBody() {
+  return errorResponse(
+    envelope(
+      "Nothing to delete",
+      "Send `{ ids: [...] }` with at least one document id.",
+      "ERR_NO_IDS",
+      false,
+    ),
+    400,
+  );
 }

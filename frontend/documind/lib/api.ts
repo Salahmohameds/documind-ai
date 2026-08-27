@@ -1,5 +1,4 @@
 import {
-  DEMO_CREDENTIALS,
   QA_PAGES,
   QA_FALLBACK,
   UPLOAD_LIMITS,
@@ -34,14 +33,27 @@ import type {
  * are the only code that knows where `document-service`, `search-service` and
  * `ai-service` live — see `app/api/` and `lib/server/backend.ts`.
  *
- * Two things are still local, and are marked `UNBACKED` where they appear:
- * authentication (no `api-gateway` yet) and the per-document reader fixtures
- * (no `processing-service` to produce page text). Nothing else invents data —
- * where a service has no answer, these functions return an empty or null
- * result and the UI renders its "nothing here" state.
+ * Everything reaches the backend through the API Gateway, which owns
+ * authentication; the session token lives in an httpOnly cookie the route
+ * handlers attach, so nothing here ever holds a credential.
+ *
+ * One thing is still local, and is marked `UNBACKED` where it appears: the
+ * per-document reader fixtures, which need a `processing-service` to produce
+ * page text. Nothing else invents data — where a service has no answer, these
+ * functions return an empty or null result and the UI renders its "nothing
+ * here" state.
  */
 
 export type Simulate = "ok" | "empty" | "error" | "slow" | "partial";
+
+/**
+ * The one error code with a required side effect.
+ *
+ * Mirrors `SESSION_EXPIRED` in `lib/server/backend.ts`; duplicated as a literal
+ * rather than imported because that module is server-only and importing it
+ * here would pull service URLs into the browser bundle.
+ */
+export const SESSION_EXPIRED = "ERR_SESSION_EXPIRED";
 
 export class ApiError extends Error {
   constructor(
@@ -74,6 +86,41 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * (see `lib/server/backend.ts`), which maps exactly onto `ApiError` — that is
  * why no caller has to interpret a status code.
  */
+/**
+ * Set once the browser is on its way to sign-in.
+ *
+ * Several screens poll — document status every couple of seconds, the health
+ * badge and the nav counts every fifteen — so an expired session produces a
+ * burst of simultaneous 401s. Without this latch each one would start its own
+ * navigation, and the address bar would fight itself.
+ */
+let redirecting = false;
+
+/**
+ * Sends the browser to sign-in, once, preserving where it was.
+ *
+ * A full-document navigation rather than a router push: every module-level
+ * cache in the app is now holding another user's data, and the cheapest way to
+ * be certain none of it survives is to reload.
+ */
+function redirectToSignIn(): void {
+  if (redirecting) return;
+  if (typeof window === "undefined") return;
+
+  // Already there — nothing to preserve, and re-navigating would wipe the
+  // error the sign-in form is trying to show.
+  if (window.location.pathname === "/login") return;
+
+  redirecting = true;
+  const next = window.location.pathname + window.location.search;
+  // A router push is the usual advice, and is wrong here: the module-level
+  // library and corpus caches in this file are still holding the previous
+  // session's documents, and a soft navigation would carry them into the next
+  // one. Reloading is the only thing that reliably clears them.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  window.location.assign(`/login?next=${encodeURIComponent(next)}&reason=expired`);
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   // These paths are relative, which has no meaning without a document base, so
   // a call from the server could only ever fail. During prerendering that is
@@ -104,6 +151,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       retryable?: boolean;
     } | null;
 
+    // The session is over. The route handler has already dropped the cookie;
+    // this is the half that moves the user somewhere they can do something
+    // about it. Never retried — the Gateway has no refresh endpoint, so a
+    // second attempt can only fail the same way.
+    if (body?.code === SESSION_EXPIRED || response.status === 401) {
+      redirectToSignIn();
+      throw new ApiError(
+        body?.error ?? "Your session has ended",
+        body?.detail ?? "Sign in to continue.",
+        SESSION_EXPIRED,
+        false,
+      );
+    }
+
     throw new ApiError(
       body?.error ?? "Something went wrong",
       body?.detail ?? `The request failed with ${response.status}.`,
@@ -132,60 +193,81 @@ async function simulatedDelay(simulate: Simulate, signal?: AbortSignal): Promise
 }
 
 /* -- Auth --------------------------------------------------------------- */
-/* UNBACKED: api-gateway owns `POST /auth/login` and has not been built. This
- * block is the only remaining fabricated data path in the app. */
 
 export type Session = { email: string; name: string; initials: string };
-
-let attemptsRemaining = 3;
-/** Demo lockouts clear on their own so the sign-in page stays explorable. */
-const LOCKOUT_MS = 20_000;
 
 export type SignInResult =
   | { ok: true; session: Session }
   | { ok: false; title: string; detail: string; lockedOut: boolean };
 
+/**
+ * Signs in against the Gateway.
+ *
+ * Deliberately not routed through `request()`: a rejected sign-in is a result,
+ * not an error. The Gateway names the reason and whether the account is locked,
+ * and the form renders those fields — throwing here would replace that with a
+ * generic banner and lose the distinction.
+ *
+ * The token never arrives. `/api/auth/login` moves it into an httpOnly cookie
+ * and returns the display fields alone.
+ */
 export async function signIn(email: string, password: string): Promise<SignInResult> {
-  await sleep(1100);
-
-  if (attemptsRemaining <= 0) {
+  let response: Response;
+  try {
+    response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
     return {
       ok: false,
-      lockedOut: true,
-      title: "Account temporarily locked",
-      detail:
-        "Too many failed attempts. The lock clears automatically in 20 seconds, or reset your password.",
+      lockedOut: false,
+      title: "Cannot reach DocuMind",
+      detail: "The browser could not reach this app's API. Check your connection and retry.",
     };
   }
 
-  if (email.trim().toLowerCase() === DEMO_CREDENTIALS.email && password === DEMO_CREDENTIALS.password) {
-    attemptsRemaining = 3;
-    return { ok: true, session: { email, name: "Rowan Nakamura", initials: "RN" } };
+  const body = (await response.json().catch(() => null)) as
+    | { ok?: boolean; session?: Session; title?: string; detail?: string; lockedOut?: boolean }
+    | null;
+
+  if (response.ok && body?.ok && body.session) {
+    return { ok: true, session: body.session };
   }
 
-  attemptsRemaining -= 1;
-  if (attemptsRemaining <= 0) {
-    setTimeout(() => {
-      attemptsRemaining = 3;
-    }, LOCKOUT_MS);
-    return {
-      ok: false,
-      lockedOut: true,
-      title: "Account temporarily locked",
-      detail:
-        "Too many failed attempts. The lock clears automatically in 20 seconds, or reset your password.",
-    };
-  }
   return {
     ok: false,
-    lockedOut: false,
-    title: "Invalid email or password",
-    detail: `${attemptsRemaining} attempt${attemptsRemaining === 1 ? "" : "s"} remaining before lockout.`,
+    lockedOut: body?.lockedOut ?? false,
+    title: body?.title ?? "Sign-in failed",
+    detail: body?.detail ?? `The request failed with ${response.status}.`,
   };
 }
 
+/** Ends the session by dropping the cookie. Always resolves — sign-out must not fail. */
+export async function signOut(): Promise<void> {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Nothing useful to tell the user: they asked to leave, and the navigation
+    // that follows takes them out of the app either way.
+  }
+}
+
+/** The signed-in identity, or null. Used by the shell to render the account menu. */
+export async function getSession(signal?: AbortSignal): Promise<Session | null> {
+  try {
+    const body = await request<{ authenticated: boolean; session?: Session }>(
+      "/api/auth/session",
+      { signal },
+    );
+    return body.authenticated && body.session ? body.session : null;
+  } catch {
+    return null;
+  }
+}
+
 /* -- Registration ------------------------------------------------------- */
-/* UNBACKED: same gateway gap as sign-in. */
 
 export type SignUpInput = {
   name: string;
@@ -198,50 +280,65 @@ export type SignUpResult =
   | { ok: true; email: string; verificationSentTo: string }
   | { ok: false; field: "email" | "password" | "org" | null; title: string; detail: string };
 
-/** Addresses treated as already registered, to exercise the conflict path. */
-const TAKEN_EMAILS = [DEMO_CREDENTIALS.email, "admin@meridian.com", "rowan@meridian.com"];
-
-/** Passwords rejected server-side even though they pass the client rules. */
-const BREACHED_PASSWORDS = ["password123", "documind123", "letmein123", "qwerty12345"];
-
+/**
+ * Creates an account on the Gateway.
+ *
+ * Like sign-in, a rejection is a result: the Gateway names the field it
+ * rejected — email already taken, password too short, workspace name too short
+ * — and the form highlights that input.
+ */
 export async function signUp(input: SignUpInput): Promise<SignUpResult> {
-  await sleep(1500);
-
-  if (TAKEN_EMAILS.includes(input.email.trim().toLowerCase())) {
+  let response: Response;
+  try {
+    response = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
     return {
       ok: false,
-      field: "email",
-      title: "That email already has an account",
-      detail:
-        "Sign in instead, or use a different address. Password resets go to the original inbox.",
+      field: null,
+      title: "Cannot reach DocuMind",
+      detail: "The browser could not reach this app's API. Check your connection and retry.",
     };
   }
 
-  if (BREACHED_PASSWORDS.includes(input.password.toLowerCase())) {
+  const body = (await response.json().catch(() => null)) as
+    | {
+        ok?: boolean;
+        email?: string;
+        verificationSentTo?: string;
+        field?: "email" | "password" | "org" | null;
+        title?: string;
+        detail?: string;
+      }
+    | null;
+
+  if (response.ok && body?.ok) {
     return {
-      ok: false,
-      field: "password",
-      title: "This password has appeared in a breach",
-      detail:
-        "It passes the length rules but is on a known-compromised list. Choose something unique to DocuMind.",
+      ok: true,
+      email: body.email ?? input.email,
+      verificationSentTo: body.verificationSentTo ?? input.email,
     };
   }
 
-  if (input.org.trim().length < 2) {
-    return {
-      ok: false,
-      field: "org",
-      title: "Workspace name is too short",
-      detail: "Use the name your team will recognise — it appears on every exported report.",
-    };
-  }
-
-  return { ok: true, email: input.email, verificationSentTo: input.email };
+  return {
+    ok: false,
+    field: body?.field ?? null,
+    title: body?.title ?? "Could not create the account",
+    detail: body?.detail ?? `The request failed with ${response.status}.`,
+  };
 }
 
+/**
+ * UNBACKED: the Gateway sends no verification mail and exposes no resend
+ * route, so there is nothing to call. Reports failure rather than a success
+ * the user would wait on an email for.
+ */
 export async function resendVerification(email: string): Promise<{ ok: boolean }> {
-  await sleep(1200);
-  return { ok: !email.endsWith("@example.com") };
+  void email;
+  return { ok: false };
 }
 
 /* -- Service health ------------------------------------------------------ */
@@ -427,40 +524,44 @@ export type BulkResult = {
 };
 
 /**
- * UNBACKED: document-service defines the request and result schemas for bulk
- * reprocess and delete (`BulkRequestSchema` / `BulkResultSchema`) but exposes
- * no route for either.
+ * Reprocesses documents by id.
  *
- * These report every id as failed with the real reason rather than pretending
- * to succeed: a fake success would show the row changing state and then snap
- * back on the next poll, which is worse than being told it is unavailable. The
- * UI already renders per-id failure reasons, so this needs no special casing.
+ * A per-document failure arrives inside a **200**: the result names which ids
+ * succeeded and why the rest did not, so this must never be read as
+ * all-or-nothing. The UI already renders `failed[]` reasons per row.
+ *
+ * document-service resets each one to *queued* and republishes the job on the
+ * same Redis stream an upload uses, so the row goes back through the pipeline
+ * from the start. Callers follow it with `getDocumentStatus`.
  */
-function unsupported(ids: string[], rows: DocumentSummary[], reason: string): BulkResult {
-  const nameOf = (id: string) => rows.find((r) => r.id === id)?.name ?? id;
-  return {
-    requested: ids.length,
-    succeeded: [],
-    failed: ids.map((id) => ({ id, name: nameOf(id), reason })),
-  };
-}
-
 export async function reprocessDocuments(ids: string[]): Promise<BulkResult> {
-  const { rows } = await listDocuments({ pageSize: 100 });
-  return unsupported(
-    ids,
-    rows,
-    "Reprocessing is not available yet — document-service exposes no reprocess route.",
-  );
+  const result = await request<BulkResult>("/api/documents/reprocess", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (result.succeeded.length > 0) invalidateLibrary();
+  return result;
 }
 
+/**
+ * Deletes documents by id.
+ *
+ * Same 200-with-failures contract as reprocess. Deleting also removes the
+ * stored file and cascades to every row keyed on the document, so the search
+ * corpus is stale the moment this returns — both caches are dropped.
+ */
 export async function deleteDocuments(ids: string[]): Promise<BulkResult> {
-  const { rows } = await listDocuments({ pageSize: 100 });
-  return unsupported(
-    ids,
-    rows,
-    "Deleting is not available yet — document-service exposes no delete route.",
-  );
+  const result = await request<BulkResult>("/api/documents", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (result.succeeded.length > 0) {
+    invalidateLibrary();
+    invalidateCorpus();
+  }
+  return result;
 }
 
 /* -- Exports ------------------------------------------------------------- */
@@ -769,6 +870,13 @@ export async function askWorkspace(
   const inScope = scope === "All" ? library : library.filter((d) => d.type === scope);
   if (inScope.length === 0) return null;
 
+  // Unscoped questions go to the Gateway's `/qa`, which retrieves and writes
+  // the answer in one round trip. A scoped question cannot: `/qa` takes a
+  // question and nothing else, so there is no way to tell it which documents
+  // count, and the filtering below is the only thing that keeps a "Contracts"
+  // question from being answered out of an invoice.
+  if (scope === "All") return askViaGateway(question, inScope, opts.signal);
+
   const passages = await retrieve(question, { topK: 8, signal: opts.signal });
   const byId = new Map(inScope.map((d) => [d.id, d]));
 
@@ -816,6 +924,91 @@ export async function askWorkspace(
       : `Ranked ${passages.length} passages across ${inScope.length} documents`,
     searched: inScope.length,
   };
+}
+
+/**
+ * The one-call path, for questions with no scope to enforce.
+ *
+ * The library is still loaded — not to filter, but because `/qa` cites chunk
+ * ids and the sources panel shows document names. Returns null on a refusal or
+ * an answer that cited nothing, which the UI renders as "no answer" rather
+ * than as a failure.
+ */
+async function askViaGateway(
+  question: string,
+  library: DocumentSummary[],
+  signal?: AbortSignal,
+): Promise<WorkspaceAnswer | null> {
+  const answer = await request<{
+    text: string;
+    citations: { chunkId: string; documentId: string | null; page: number | null; snippet: string }[];
+    refused: boolean;
+  }>("/api/qa", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+    signal,
+  });
+
+  if (answer.refused) return null;
+
+  const byId = new Map(library.map((d) => [d.id, d]));
+  const citations: WorkspaceCitation[] = [];
+  for (const c of answer.citations) {
+    const doc = c.documentId ? byId.get(c.documentId) : undefined;
+    citations.push({
+      id: c.chunkId,
+      // A cited chunk whose document has since been deleted still has a real
+      // snippet behind it, so it is shown rather than dropped.
+      docId: doc?.id ?? (c.documentId ?? c.chunkId),
+      docName: doc?.name ?? "Unknown document",
+      docType: doc?.type ?? ("Unknown" as DocType),
+      page: c.page ?? 1,
+      context: c.page ? `page ${c.page}` : "matched passage",
+      snippet: c.snippet,
+    });
+  }
+
+  if (citations.length === 0) return null;
+
+  return {
+    text: answer.text,
+    citations,
+    thinking: `Answered from ${citations.length} passage${citations.length === 1 ? "" : "s"} across ${library.length} documents`,
+    searched: library.length,
+  };
+}
+
+/* -- Document analysis --------------------------------------------------- */
+
+/**
+ * The ai-service analysis endpoints.
+ *
+ * Each takes document text and returns ai-service's own snake_case payload
+ * unchanged — these are analysis results with per-task shapes, not a UI
+ * contract, and inventing a camelCase mirror for each would be five type
+ * definitions that drift the first time a model changes.
+ *
+ * No screen calls these yet. They exist because the Gateway now proxies them
+ * and the seam is the right place for that to be visible.
+ */
+export type AnalysisTask = "classify" | "extract" | "summarize" | "pii" | "risk";
+
+export function analyse<T = unknown>(
+  task: AnalysisTask,
+  text: string,
+  opts: { documentId?: string; signal?: AbortSignal; extra?: Record<string, unknown> } = {},
+): Promise<T> {
+  return request<T>(`/api/ai/${task}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text,
+      ...(opts.documentId ? { document_id: opts.documentId } : {}),
+      ...opts.extra,
+    }),
+    signal: opts.signal,
+  });
 }
 
 /** The blocks that make up one page of the document reader.

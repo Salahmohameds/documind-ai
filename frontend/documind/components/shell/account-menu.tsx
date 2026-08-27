@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { WORKSPACE } from "@/lib/mock/data";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { getSession, signOut, type Session } from "@/lib/api";
 import { ChevronsLeftIcon, useSidebar } from "@/components/shell/sidebar-state";
 import { ThemeSwitch, useTheme } from "@/components/theme-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,21 +29,43 @@ import {
 export function AccountMenu() {
   const { theme, toggleTheme } = useTheme();
   const { collapsed, toggle } = useSidebar();
+  const router = useRouter();
+  const [session, setSession] = useState<Session | null>(null);
+
+  // The token is httpOnly, so who is signed in is something only the server
+  // can answer. Read once on mount: it cannot change without a navigation.
+  useEffect(() => {
+    const controller = new AbortController();
+    void getSession(controller.signal).then(setSession);
+    return () => controller.abort();
+  }, []);
+
+  async function onSignOut() {
+    await signOut();
+    // `replace`, so the back button does not return to a signed-out dashboard.
+    router.replace("/login");
+  }
+
+  // Before the session lands the menu still has to render something. Blanks
+  // rather than a placeholder identity — a wrong name is worse than no name.
+  const initials = session?.initials ?? "";
+  const name = session?.name ?? "";
+  const email = session?.email ?? "";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="group/account flex items-center gap-2.5 rounded-[10px] border border-transparent py-1 pr-2 pl-1 text-left outline-none transition-colors duration-150 hover:border-border hover:bg-[var(--surface-2)] focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:border-border aria-expanded:bg-[var(--surface-2)]">
         <Avatar className="size-[34px] flex-none rounded-[10px]">
           <AvatarFallback className="rounded-[10px] bg-[var(--s700)] text-xs font-semibold text-white">
-            {WORKSPACE.initials}
+            {initials}
           </AvatarFallback>
         </Avatar>
         <div className="hidden min-w-0 flex-col lg:flex">
           <span className="truncate text-xs font-semibold text-[var(--text)]">
-            {WORKSPACE.org}
+            {name}
           </span>
           <span className="truncate font-mono text-[10px] text-[var(--text-3)]">
-            {WORKSPACE.email}
+            {email}
           </span>
         </div>
         <span className="hidden transition-transform duration-200 group-aria-expanded/account:rotate-180 lg:flex">
@@ -59,10 +82,10 @@ export function AccountMenu() {
       >
         <DropdownMenuLabel className="flex min-w-0 flex-col gap-px px-2 pt-2 pb-2.5">
           <span className="truncate text-xs font-semibold text-[var(--text)]">
-            {WORKSPACE.user}
+            {name}
           </span>
           <span className="truncate font-mono text-[10px] font-normal text-[var(--text-3)]">
-            {WORKSPACE.email}
+            {email}
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -108,23 +131,20 @@ export function AccountMenu() {
           <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-2)]">
             Team &amp; billing
           </span>
-          <span className="flex-none font-mono text-[10px] text-[var(--text-3)]">
-            {WORKSPACE.plan}
-          </span>
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
-          asChild
           className="gap-2.5 rounded-[10px] p-2 focus:bg-[var(--bad-soft)]"
+          onSelect={() => {
+            void onSignOut();
+          }}
         >
-          <Link href="/login">
-            <SignOutIcon size={14} color="var(--bad)" />
-            <span className="min-w-0 flex-1 truncate text-xs text-[var(--bad)]">
-              Sign out
-            </span>
-          </Link>
+          <SignOutIcon size={14} color="var(--bad)" />
+          <span className="min-w-0 flex-1 truncate text-xs text-[var(--bad)]">
+            Sign out
+          </span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

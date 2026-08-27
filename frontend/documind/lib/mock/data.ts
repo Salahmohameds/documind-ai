@@ -30,7 +30,12 @@ export const WORKSPACE = {
 };
 
 /** The only credentials the mock auth accepts. */
-export const DEMO_CREDENTIALS = { email: "ops@meridian.com", password: "documind2026" };
+/**
+ * The account api-gateway seeds into its in-memory user store on startup, so
+ * the sign-in hint fills in credentials that actually work. Changing it here
+ * without changing `services/api-gateway/app/auth/store.py` breaks that.
+ */
+export const DEMO_CREDENTIALS = { email: "admin@documind.com", password: "password123" };
 
 export const PIPELINE_STEPS = [
   "Uploaded",
