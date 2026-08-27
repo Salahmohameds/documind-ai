@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,60 @@ def _luhn_ok(digits: str) -> bool:
     return total % 10 == 0
 
 
+#: Egyptian governorate codes embedded at positions 8-9 of a national ID.
+#: 88 means "born abroad".
+_EG_GOVERNORATES = frozenset(
+    {"01", "02", "03", "04"}
+    | {f"{n:02d}" for n in range(11, 20)}
+    | {f"{n:02d}" for n in range(21, 30)}
+    | {f"{n:02d}" for n in range(31, 36)}
+    | {"88"}
+)
+
+
+def _egypt_national_id_ok(digits: str) -> bool:
+    """Structural check for an Egyptian national ID.
+
+    14 digits: C YYMMDD GG SSSS X
+      C   century - 2 for 1900s, 3 for 2000s
+      YYMMDD  date of birth
+      GG  governorate code
+      SSSS sequence (last digit encodes gender)
+      X   checksum
+
+    This exists because Luhn is a *weak* signal at 14 digits: roughly one in
+    ten national IDs passes it by chance, and those were being reported as
+    CREDIT_CARD. Checking the century digit, a real calendar date and a real
+    governorate code is far more specific than a checksum that was never meant
+    to identify a number's type.
+    """
+    if len(digits) != 14 or digits[0] not in "23":
+        return False
+
+    century = 1900 if digits[0] == "2" else 2000
+    year = century + int(digits[1:3])
+    month = int(digits[3:5])
+    day = int(digits[5:7])
+
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return False
+    try:
+        date(year, month, day)
+    except ValueError:
+        return False
+
+    return digits[7:9] in _EG_GOVERNORATES
+
+
+def _saudi_national_id_ok(digits: str) -> bool:
+    """Saudi national ID: 10 digits starting 1 (citizen) or 2 (resident).
+
+    Saudi mobile numbers start 05, so the leading digit separates the two
+    cleanly enough for a redaction decision.
+    """
+    return len(digits) == 10 and digits[0] in "12"
+
+
 # Spans that are claimed BEFORE any PII pattern runs, and never redacted.
 #
 # Dates are the important one. "2026-09-01" is eight digits with separators,
@@ -109,17 +164,22 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),
     ),
     (
-        "CREDIT_CARD",
-        re.compile(r"\b(?:\d[ \-]?){13,19}\b"),
-    ),
-    (
         "SSN",
         re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     ),
     (
+        # BEFORE credit cards on purpose. A 14-digit Egyptian national ID passes
+        # the Luhn checksum roughly one time in ten, and while CREDIT_CARD was
+        # checked first those IDs were reported as card numbers - reported by a
+        # teammate, reproduced with 28503150212349. The structural validator is
+        # far more specific than a checksum, so it gets first claim on the span.
         # Egypt: 14 digits. Saudi: 10 digits starting 1 or 2.
         "NATIONAL_ID",
         re.compile(r"\b(?:\d{14}|[12]\d{9})\b"),
+    ),
+    (
+        "CREDIT_CARD",
+        re.compile(r"\b(?:\d[ \-]?){13,19}\b"),
     ),
     (
         "IP_ADDRESS",
@@ -131,6 +191,19 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"(?<![\w.])(?:\+\d{1,3}[\s\-.]?)?(?:\(\d{1,4}\)[\s\-.]?)?"
             r"\d{2,4}(?:[\s\-.]\d{2,4}){1,3}(?![\w.])"
         ),
+    ),
+    (
+        # Safety net, deliberately last. Tightening NATIONAL_ID and CREDIT_CARD
+        # into precise validators made their labels correct but opened a hole:
+        # a long digit run that is neither - a malformed ID, a foreign one, a
+        # passport - matched nothing and left the cluster in the clear.
+        #
+        # This module's stated bias is that a false positive costs a slightly
+        # worse prompt while a false negative leaks someone's identifier, so an
+        # unclassified long digit run is redacted anyway. The label says only
+        # that we could not tell what it was.
+        "ID_NUMBER",
+        re.compile(r"(?<![\d.\-])\d{9,19}(?![\d.\-])"),
     ),
 )
 
@@ -145,13 +218,16 @@ def _accept(kind: str, value: str) -> bool:
     digits = re.sub(r"\D", "", value)
 
     if kind == "CREDIT_CARD":
-        return 13 <= len(digits) <= 19 and _luhn_ok(digits)
+        # Every major issuer range starts 3-6. Egyptian national IDs start 2 or
+        # 3, so this rules out half of them outright, and NATIONAL_ID has
+        # already had first claim on anything structurally valid.
+        return 13 <= len(digits) <= 19 and digits[0] in "3456" and _luhn_ok(digits)
     if kind == "PHONE":
         return _PHONE_MIN_DIGITS <= len(digits) <= _PHONE_MAX_DIGITS
     if kind == "IP_ADDRESS":
         return all(0 <= int(part) <= 255 for part in value.split("."))
     if kind == "NATIONAL_ID":
-        return len(digits) in (10, 14)
+        return _egypt_national_id_ok(digits) or _saudi_national_id_ok(digits)
     return True
 
 
