@@ -1,0 +1,32 @@
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-service-account
+  namespace: documind
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: documind
+  name: read-only-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "secrets"]
+  verbs: ["get", "list", "watch"]
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-read-only-binding
+  namespace: documind
+subjects:
+- kind: ServiceAccount
+  name: app-service-account
+  namespace: documind
+roleRef:
+  kind: Role
+  name: read-only-role
+  apiGroup: rbac.authorization.k8s.io
