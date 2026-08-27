@@ -6,6 +6,7 @@ import { getDocument, getDocumentStatus, reprocessDocuments } from "@/lib/api";
 import { useAction, useAsync } from "@/lib/use-async";
 import { PIPELINE_STEPS } from "@/lib/mock/data";
 import { confidenceTone, riskTone, v } from "@/lib/design";
+import { downloadJson } from "@/lib/download";
 import type { DocumentDetail, PiiFinding, Tone } from "@/lib/types";
 import { PipelineTrack } from "@/components/documind/pipeline";
 import {
@@ -46,6 +47,46 @@ const panel: CSSProperties = {
   flexDirection: "column",
   overflow: "hidden",
 };
+
+/**
+ * The extraction as a file.
+ *
+ * Built from the detail the page already holds rather than a separate export
+ * endpoint, so what lands on disk is exactly what is on screen. PII carries
+ * only the masked form: a reveal is audit-logged server-side, and a download
+ * that shipped the raw values would be a way around that.
+ */
+function extractionExport(detail: DocumentDetail) {
+  return {
+    document: {
+      id: detail.id,
+      name: detail.name,
+      type: detail.type,
+      pages: detail.pages,
+      sizeMb: detail.sizeMb,
+      counterparty: detail.counterparty,
+      uploaded: detail.uploaded,
+      status: detail.status,
+      verdict: detail.verdict,
+      risk: detail.risk,
+      processedIn: detail.processedIn ?? null,
+      model: detail.model ?? null,
+    },
+    classification: detail.classification ?? null,
+    fields: detail.fields.map((f) => ({
+      key: f.key,
+      value: f.value,
+      confidence: f.confidence,
+      page: f.page,
+    })),
+    fieldsExpected: detail.fieldsExpected,
+    pii: detail.pii.map((p) => ({ id: p.id, type: p.type, masked: p.masked, page: p.page })),
+    riskCategories: detail.riskCategories,
+    findings: detail.findings,
+    partial: detail.partial ?? null,
+    exportedAt: new Date().toISOString(),
+  };
+}
 
 export function DocumentDetailView({ id }: { id: string }) {
   const [confirmReprocess, setConfirmReprocess] = useState(false);
@@ -93,6 +134,18 @@ export function DocumentDetailView({ id }: { id: string }) {
       clearInterval(t);
     };
   }, [id, inPipeline, reloadDoc, setDoc]);
+
+  function runDownload() {
+    // Guarded by the button's disabled state, but the handler still checks —
+    // `detail` is only non-null once the read has landed.
+    if (!detail || detail.status !== "completed") return;
+    try {
+      downloadJson({ filename: `${detail.id}.json`, data: extractionExport(detail) });
+      push({ tone: "--ok", glyph: "✓", title: "JSON downloaded", body: `${detail.id}.json · ${detail.fields.length} fields, ${detail.pii.length} PII findings.` });
+    } catch {
+      push({ tone: "--bad", glyph: "✕", title: "Download failed", body: "The browser refused the file. Check that downloads are not blocked for this site." });
+    }
+  }
 
   async function runReprocess() {
     setConfirmReprocess(false);
@@ -209,7 +262,7 @@ export function DocumentDetailView({ id }: { id: string }) {
                 <Button variant="surface" size="dmQuiet"
                   disabled={detail.status !== "completed"}
                   title={detail.status !== "completed" ? "No extraction to download yet" : undefined}
-                  onClick={() => push({ tone: "--ok", glyph: "✓", title: "JSON ready", body: `${detail.id}.json · ${detail.fields.length} fields, ${detail.pii.length} PII findings.` })}
+                  onClick={runDownload}
                   style={{ height: 38, opacity: detail.status !== "completed" ? 0.5 : 1 }}
                 >
                   <DownloadIcon size={15} color="var(--text-3)" />
