@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but the template is documentation, not a secret: it is the only record of
+# DOCUMIND_API_MODE and GATEWAY_URL, and it holds no values.
+!.env.example
 
 # vercel
 .vercel

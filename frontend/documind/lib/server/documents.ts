@@ -12,7 +12,7 @@
  * truncated, because a truncated fold would report totals that are simply wrong.
  */
 
-import { DOCUMENT_SERVICE_URL, BackendError, call, envelope } from "@/lib/server/backend";
+import { BackendError, call, envelope } from "@/lib/server/backend";
 import type { DocumentDetail, DocumentSummary } from "@/lib/types";
 
 /** The largest page document-service will serve. */
@@ -90,7 +90,7 @@ export async function fetchAllDocuments(signal?: AbortSignal): Promise<DocumentS
 
 function fetchPage(page: number, signal?: AbortSignal): Promise<UpstreamPage> {
   return call<UpstreamPage>(
-    DOCUMENT_SERVICE_URL,
+    "documents",
     `/documents?page=${page}&page_size=${UPSTREAM_PAGE_SIZE}`,
     { signal },
   );
@@ -139,7 +139,7 @@ export function applyQuery(all: DocumentSummary[], q: DocumentQueryParams) {
 export async function fetchDocument(id: string): Promise<DocumentDetail | null> {
   try {
     return await call<DocumentDetail>(
-      DOCUMENT_SERVICE_URL,
+      "documents",
       `/documents/${encodeURIComponent(id)}`,
     );
   } catch {

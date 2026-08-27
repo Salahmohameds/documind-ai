@@ -11,7 +11,7 @@
  */
 
 import type { NextRequest } from "next/server";
-import { AI_SERVICE_URL, call, envelope, errorResponse, handle } from "@/lib/server/backend";
+import { call, envelope, errorResponse, handle } from "@/lib/server/backend";
 
 /** How many passages we will forward. Matches ai-service's own context cap. */
 const MAX_PASSAGES = 12;
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       .filter((p): p is RequestPassage & { text: string } => Boolean(p.text?.trim()))
       .slice(0, MAX_PASSAGES);
 
-    const upstream = await call<UpstreamAnswerResponse>(AI_SERVICE_URL, "/answer", {
+    const upstream = await call<UpstreamAnswerResponse>("ai", "/answer", {
       method: "POST",
       body: JSON.stringify({
         question,

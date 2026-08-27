@@ -6,6 +6,7 @@ import { getDocument, getDocumentStatus, reprocessDocuments } from "@/lib/api";
 import { useAction, useAsync } from "@/lib/use-async";
 import { PIPELINE_STEPS } from "@/lib/mock/data";
 import { confidenceTone, riskTone, v } from "@/lib/design";
+import { downloadJson } from "@/lib/download";
 import type { DocumentDetail, PiiFinding, Tone } from "@/lib/types";
 import { PipelineTrack } from "@/components/documind/pipeline";
 import {
@@ -47,6 +48,46 @@ const panel: CSSProperties = {
   overflow: "hidden",
 };
 
+/**
+ * The extraction as a file.
+ *
+ * Built from the detail the page already holds rather than a separate export
+ * endpoint, so what lands on disk is exactly what is on screen. PII carries
+ * only the masked form: a reveal is audit-logged server-side, and a download
+ * that shipped the raw values would be a way around that.
+ */
+function extractionExport(detail: DocumentDetail) {
+  return {
+    document: {
+      id: detail.id,
+      name: detail.name,
+      type: detail.type,
+      pages: detail.pages,
+      sizeMb: detail.sizeMb,
+      counterparty: detail.counterparty,
+      uploaded: detail.uploaded,
+      status: detail.status,
+      verdict: detail.verdict,
+      risk: detail.risk,
+      processedIn: detail.processedIn ?? null,
+      model: detail.model ?? null,
+    },
+    classification: detail.classification ?? null,
+    fields: detail.fields.map((f) => ({
+      key: f.key,
+      value: f.value,
+      confidence: f.confidence,
+      page: f.page,
+    })),
+    fieldsExpected: detail.fieldsExpected,
+    pii: detail.pii.map((p) => ({ id: p.id, type: p.type, masked: p.masked, page: p.page })),
+    riskCategories: detail.riskCategories,
+    findings: detail.findings,
+    partial: detail.partial ?? null,
+    exportedAt: new Date().toISOString(),
+  };
+}
+
 export function DocumentDetailView({ id }: { id: string }) {
   const [confirmReprocess, setConfirmReprocess] = useState(false);
   const { toasts, push, update, dismiss } = useToasts();
@@ -70,11 +111,17 @@ export function DocumentDetailView({ id }: { id: string }) {
     const t = setInterval(async () => {
       try {
         const next = await getDocumentStatus(id, controller.signal);
-        setDoc((prev) =>
-          prev.status === next.status
-            ? { ...prev, progress: next.progress ?? undefined }
-            : prev,
-        );
+        // Reflect every transition, not only progress within one. Returning
+        // the previous state on a change left a document that had moved from
+        // queued to processing still rendering as queued, because the reload
+        // below only fires once it leaves the pipeline entirely.
+        setDoc((prev) => ({
+          ...prev,
+          status: next.status,
+          progress: next.progress ?? undefined,
+        }));
+        // Settled: re-read the whole document, because this is the moment the
+        // analysis it produced becomes readable.
         if (next.status !== "processing" && next.status !== "queued") reloadDoc();
       } catch {
         // A failed poll is not worth surfacing — the next tick retries, and
@@ -87,6 +134,18 @@ export function DocumentDetailView({ id }: { id: string }) {
       clearInterval(t);
     };
   }, [id, inPipeline, reloadDoc, setDoc]);
+
+  function runDownload() {
+    // Guarded by the button's disabled state, but the handler still checks —
+    // `detail` is only non-null once the read has landed.
+    if (!detail || detail.status !== "completed") return;
+    try {
+      downloadJson({ filename: `${detail.id}.json`, data: extractionExport(detail) });
+      push({ tone: "--ok", glyph: "✓", title: "JSON downloaded", body: `${detail.id}.json · ${detail.fields.length} fields, ${detail.pii.length} PII findings.` });
+    } catch {
+      push({ tone: "--bad", glyph: "✕", title: "Download failed", body: "The browser refused the file. Check that downloads are not blocked for this site." });
+    }
+  }
 
   async function runReprocess() {
     setConfirmReprocess(false);
@@ -203,7 +262,7 @@ export function DocumentDetailView({ id }: { id: string }) {
                 <Button variant="surface" size="dmQuiet"
                   disabled={detail.status !== "completed"}
                   title={detail.status !== "completed" ? "No extraction to download yet" : undefined}
-                  onClick={() => push({ tone: "--ok", glyph: "✓", title: "JSON ready", body: `${detail.id}.json · ${detail.fields.length} fields, ${detail.pii.length} PII findings.` })}
+                  onClick={runDownload}
                   style={{ height: 38, opacity: detail.status !== "completed" ? 0.5 : 1 }}
                 >
                   <DownloadIcon size={15} color="var(--text-3)" />
@@ -634,7 +693,11 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
           <Stagger delay={0.1} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(148px,1fr))", gap: 14 }}>
             {detail.riskCategories.map((cat) => {
               const ct = riskTone(cat.score);
-              const level = cat.score <= 33 ? "Low" : cat.score <= 66 ? "Medium" : "High";
+              // The band is what ai-service actually decided; the score is a
+              // stand-in placed inside that band so the tone and the bar still
+              // work. Prefer the band so the card does not claim a precision
+              // nothing measured.
+              const level = cat.band ?? (cat.score <= 33 ? "Low" : cat.score <= 66 ? "Medium" : "High");
               return (
                 <Anim
                   key={cat.name}
@@ -651,7 +714,7 @@ function RiskPanel({ detail }: { detail: DocumentDetail }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{cat.name}</span>
                     <span className="mono" style={{ marginLeft: "auto", fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                      {cat.score}
+                      {cat.band ?? cat.score}
                     </span>
                   </div>
                   <div style={{ height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>

@@ -10,7 +10,7 @@
  */
 
 import type { NextRequest } from "next/server";
-import { SEARCH_SERVICE_URL, call, envelope, errorResponse, handle } from "@/lib/server/backend";
+import { call, envelope, errorResponse, handle } from "@/lib/server/backend";
 
 /** search-service speaks snake_case; the frontend contract is camelCase. */
 type UpstreamPassage = {
@@ -52,9 +52,9 @@ export async function GET(request: NextRequest) {
 
     const upstreamTopK = documentId ? Math.min(50, topK * SCOPED_OVERFETCH) : topK;
     const upstream = await call<UpstreamQueryResponse>(
-      SEARCH_SERVICE_URL,
+      "search",
       `/search?question=${encodeURIComponent(question)}&top_k=${upstreamTopK}`,
-      { signal: request.signal, auth: true },
+      { signal: request.signal },
     );
 
     let results = upstream.results ?? [];
@@ -91,14 +91,13 @@ export async function POST(request: NextRequest) {
     }
 
     const indexed = await call<{ document_id: string; chunks_indexed: number }>(
-      SEARCH_SERVICE_URL,
+      "search",
       "/index",
       {
         method: "POST",
         body: JSON.stringify({ document_id: body.documentId, content: body.content }),
         headers: { "Content-Type": "application/json" },
         signal: request.signal,
-        auth: true,
       },
     );
 

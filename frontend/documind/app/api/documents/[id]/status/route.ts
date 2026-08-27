@@ -7,7 +7,7 @@
  */
 
 import type { NextRequest } from "next/server";
-import { DOCUMENT_SERVICE_URL, call, handle } from "@/lib/server/backend";
+import { call, handle } from "@/lib/server/backend";
 import type { DocError } from "@/lib/types";
 
 export type DocumentStatus = {
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/document
   return handle(async () => {
     const { id } = await ctx.params;
     const status = await call<DocumentStatus>(
-      DOCUMENT_SERVICE_URL,
+      "documents",
       `/documents/${encodeURIComponent(id)}/status`,
       { signal: request.signal },
     );
