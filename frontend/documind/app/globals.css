@@ -399,6 +399,19 @@
   background: linear-gradient(90deg, transparent, rgb(255 255 255 / 16%), transparent);
 }
 
+/* The indeterminate spinner (see `Spinner` in components/motion.tsx). CSS
+   rather than Motion so that `<Motion reducedMotion="user">` cannot freeze it
+   half-turned. */
+@keyframes dm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dm-spinner {
+  animation: dm-spin 0.75s linear infinite;
+}
+
 /* Motion reads `prefers-reduced-motion` itself (via `<Motion>`'s
    `reducedMotion="user"`). This covers the CSS transitions above, which it
    can't see. */
@@ -410,6 +423,15 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+  }
+
+  /* ...except the spinner. The rule above stops it dead on whatever frame it
+     happened to be on, and a motionless ring is not a calmer spinner — it is
+     an app that looks hung. Status feedback is not decoration, so it keeps
+     turning, at a third of the speed. */
+  .dm-spinner {
+    animation-duration: 2.25s !important;
+    animation-iteration-count: infinite !important;
   }
 }
 

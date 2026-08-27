@@ -160,6 +160,25 @@ export type UploadJob = {
   /** Set when the file never started — wrong type or too large. */
   rejected?: string;
   retries: number;
+  /**
+   * The document's own lifecycle state, as document-service last reported it.
+   *
+   * Distinct from `stage`, which describes this browser's upload job. The two
+   * disagree in exactly the case that matters: once the bytes are sent the job
+   * is "processing", but the document can still be sitting at "queued" because
+   * no worker has claimed it.
+   */
+  docStatus?: "queued" | "processing" | "completed" | "failed";
+  /** When the pipeline last reported anything new about this document. */
+  lastChangeAt?: number;
+  /**
+   * How long the pipeline has been silent, advanced by the elapsed clock.
+   *
+   * Derived into state rather than computed at render: a component that reads
+   * the wall clock while rendering produces a different tree on every pass,
+   * which React treats as impure.
+   */
+  stalledMs: number;
 };
 
 /* -- Q&A ---------------------------------------------------------------- */

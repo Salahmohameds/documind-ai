@@ -24,6 +24,18 @@ const POLL_MS = 2500;
 /** Concurrent uploads. Two keeps a slow file from stalling the whole batch. */
 const MAX_CONCURRENT = 2;
 
+/**
+ * How long the pipeline may say nothing new before the row admits it.
+ *
+ * Two things go wrong in practice and neither reaches the UI as an error: a
+ * document sits at "queued" because no worker is consuming, or it sits at
+ * "processing" because a worker took the job and died, leaving the row to
+ * report the same stage forever. document-service exposes no per-stage
+ * progress, so the only evidence either way is silence — which the row now
+ * measures instead of rendering as a permanent 0%.
+ */
+const STALLED_MS = 20_000;
+
 const dropzoneBase: CSSProperties = {
   minHeight: 220,
   height: "clamp(220px, 32vh, 260px)",
@@ -57,6 +69,7 @@ function newJob(file: File): UploadJob {
     stepPct: 0,
     startedAt: Date.now(),
     elapsedMs: 0,
+    stalledMs: 0,
     retries: 0,
   };
 }
@@ -116,7 +129,11 @@ function useUploadQueue() {
         const next = prev.map((j) => {
           if (TERMINAL.includes(j.stage)) return j;
           changed = true;
-          return { ...j, elapsedMs: Date.now() - j.startedAt };
+          return {
+            ...j,
+            elapsedMs: Date.now() - j.startedAt,
+            stalledMs: j.lastChangeAt === undefined ? 0 : Date.now() - j.lastChangeAt,
+          };
         });
         return changed ? next : prev;
       });
@@ -142,6 +159,9 @@ function useUploadQueue() {
           type: doc.type,
           step: stepForStatus(doc.status, doc.progress),
           stepPct: doc.progress?.pct ?? 0,
+          docStatus: doc.status as UploadJob["docStatus"],
+          lastChangeAt: Date.now(),
+          stalledMs: 0,
         });
       } catch (cause) {
         if (cause instanceof DOMException && cause.name === "AbortError") return;
@@ -189,10 +209,23 @@ function useUploadQueue() {
             } else if (status.status === "failed") {
               patch(id, { stage: "failed", error: status.error ?? errorFor(null, docId) });
             } else {
-              patch(id, {
-                step: stepForStatus(status.status, status.progress),
-                stepPct: status.progress?.pct ?? 0,
-              });
+              const docStatus = status.status as UploadJob["docStatus"];
+              const step = stepForStatus(status.status, status.progress);
+              const stepPct = status.progress?.pct ?? 0;
+
+              // Only a genuine change restarts the silence clock. Patching
+              // unconditionally would reset it on every poll and the stall
+              // could never be detected.
+              setJobs((prev) =>
+                prev.map((j) => {
+                  if (j.id !== id) return j;
+                  const moved =
+                    j.docStatus !== docStatus || j.step !== step || j.stepPct !== stepPct;
+                  return moved
+                    ? { ...j, docStatus, step, stepPct, lastChangeAt: Date.now(), stalledMs: 0 }
+                    : j;
+                }),
+              );
             }
           } catch {
             // A dropped poll is not a failed document - the next tick retries.
@@ -201,6 +234,7 @@ function useUploadQueue() {
       );
     };
 
+    void poll();
     const t = setInterval(poll, POLL_MS);
     return () => {
       controller.abort();
@@ -721,10 +755,42 @@ export function UploadView() {
 
 /* -- Queue row ----------------------------------------------------------- */
 
+/** True once a document has waited long enough that the delay is worth naming. */
+/** The shared "this has been quiet too long" marker. */
+function StallBadge() {
+  return (
+    <span
+      className="mono"
+      style={{
+        fontSize: 11,
+        color: "var(--warn)",
+        flex: "none",
+        padding: "1px 7px",
+        borderRadius: 6,
+        border: "1px solid var(--warn-border)",
+        background: "var(--warn-soft)",
+      }}
+    >
+      delayed
+    </span>
+  );
+}
+
+function isStalled(job: UploadJob): boolean {
+  return job.stage === "processing" && job.stalledMs > STALLED_MS;
+}
+
 const STAGE_META: Record<UploadJob["stage"], { tone: string; label: (j: UploadJob) => string }> = {
   queued: { tone: "--idle", label: () => "Waiting for a slot" },
   uploading: { tone: "--accent", label: (j) => `Uploading ${j.uploadPct}%` },
-  processing: { tone: "--accent", label: (j) => PIPELINE_STEPS[Math.max(0, j.step - 1)] },
+  processing: {
+    // A document sitting at "queued" is not being worked on, and saying
+    // "Uploaded" made a stalled pipeline look like a slow one. The badge now
+    // distinguishes waiting for a worker from moving through the stages.
+    tone: "--accent",
+    label: (j) =>
+      j.docStatus === "queued" ? "Queued" : PIPELINE_STEPS[Math.max(0, j.step - 1)],
+  },
   done: { tone: "--ok", label: () => "Complete" },
   failed: { tone: "--bad", label: (j) => `Failed at ${PIPELINE_STEPS[Math.max(0, j.step - 1)]}` },
   cancelled: { tone: "--idle", label: () => "Cancelled" },
@@ -906,7 +972,21 @@ function QueueRow({
         </div>
       )}
 
-      {job.stage === "processing" && (
+      {/* Queued means accepted but unclaimed, which a 0% bar labelled "Uploaded"
+          could not say. It is a wait, not progress, so it renders as one. */}
+      {job.stage === "processing" && job.docStatus === "queued" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Spinner size={11} color={isStalled(job) ? "var(--warn)" : undefined} />
+          <span style={{ fontSize: 12, color: "var(--text-2)", flex: "1 1 auto", minWidth: 0 }}>
+            {isStalled(job)
+              ? `Still queued after ${fmtElapsed(job.stalledMs)} — no processing worker has claimed this document.`
+              : "Queued — waiting for a processing worker."}
+          </span>
+          {isStalled(job) && <StallBadge />}
+        </div>
+      )}
+
+      {job.stage === "processing" && job.docStatus !== "queued" && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, height: 4, borderRadius: 10, background: "var(--border)", overflow: "hidden" }}>
             <div style={{ width: `${job.stepPct}%`, height: "100%", background: "var(--accent)", transition: "width .16s linear" }} />
@@ -914,6 +994,18 @@ function QueueRow({
           <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}>
             {PIPELINE_STEPS[Math.max(0, job.step - 1)]} — {Math.min(100, job.stepPct)}%
           </span>
+        </div>
+      )}
+
+      {/* A worker took the job and stopped reporting. Indistinguishable from
+          slow work at a glance, which is exactly why it needs saying. */}
+      {job.stage === "processing" && job.docStatus === "processing" && isStalled(job) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: "var(--text-2)", flex: "1 1 auto", minWidth: 0 }}>
+            No progress reported for {fmtElapsed(job.stalledMs)}. The document is still marked
+            processing — the worker may have stopped.
+          </span>
+          <StallBadge />
         </div>
       )}
 

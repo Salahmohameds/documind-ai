@@ -241,7 +241,17 @@ export function Tappable<T extends ElementType = "div">({
 
 /* -- Loading ------------------------------------------------------------ */
 
-/** The indeterminate spinner. One rotation, 750ms, forever. */
+/**
+ * The indeterminate spinner. One rotation, 750ms, forever.
+ *
+ * Driven by CSS rather than by Motion, and deliberately exempt from the
+ * reduced-motion rules in `globals.css`. `<Motion reducedMotion="user">` skips
+ * transform animations, which stopped this mid-rotation and left a lopsided
+ * static ring on screen — a frozen spinner does not read as "motion respected",
+ * it reads as "the app has hung", which is the opposite of what a progress
+ * indicator is for. Under `prefers-reduced-motion` it slows to a third speed
+ * instead of stopping: still unmistakably alive, no longer distracting.
+ */
 export function Spinner({
   size = 16,
   color = "var(--accent)",
@@ -254,10 +264,9 @@ export function Spinner({
   style?: CSSProperties;
 }) {
   return (
-    <motion.span
+    <span
       aria-hidden
-      animate={{ rotate: 360 }}
-      transition={{ duration: 0.75, ease: "linear", repeat: Infinity }}
+      className="dm-spinner"
       style={{
         width: size,
         height: size,
