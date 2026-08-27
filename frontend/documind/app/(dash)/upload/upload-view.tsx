@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+} from "react";
 import {
   ApiError,
   getDocumentStatus,
@@ -14,7 +21,14 @@ import { PIPELINE_STEPS, UPLOAD_LIMITS, WORKSPACE } from "@/lib/mock/data";
 import { useHealth } from "@/lib/use-health";
 import type { DocumentSummary, UploadJob } from "@/lib/types";
 import { PipelineTrack } from "@/components/documind/pipeline";
-import { ConfirmDialog, EmptyPanel, InlineError, Spinner, Toaster, useToasts } from "@/components/documind/feedback";
+import {
+  ConfirmDialog,
+  EmptyPanel,
+  InlineError,
+  Spinner,
+  Toaster,
+  useToasts,
+} from "@/components/documind/feedback";
 import { CloudUploadIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Anim, AnimatePresence, GrowBar, Sweep } from "@/components/motion";
@@ -116,10 +130,18 @@ function fmtElapsed(ms: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-const TERMINAL: UploadJob["stage"][] = ["done", "failed", "cancelled", "rejected"];
+const TERMINAL: UploadJob["stage"][] = [
+  "done",
+  "failed",
+  "cancelled",
+  "rejected",
+];
 
 /** Maps a document lifecycle state onto the pipeline track the panel renders. */
-function stepForStatus(status: string, reported?: { step: number } | null): number {
+function stepForStatus(
+  status: string,
+  reported?: { step: number } | null,
+): number {
   if (status === "completed") return PIPELINE_STEPS.length;
   if (status === "queued") return 1;
   // The pipeline reports its own stage once processing-service is running;
@@ -169,7 +191,8 @@ function useUploadQueue() {
           return {
             ...j,
             elapsedMs: Date.now() - j.startedAt,
-            stalledMs: j.lastChangeAt === undefined ? 0 : Date.now() - j.lastChangeAt,
+            stalledMs:
+              j.lastChangeAt === undefined ? 0 : Date.now() - j.lastChangeAt,
           };
         });
         return changed ? next : prev;
@@ -205,7 +228,8 @@ function useUploadQueue() {
           stalledMs: 0,
         });
       } catch (cause) {
-        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        if (cause instanceof DOMException && cause.name === "AbortError")
+          return;
         patch(job.id, { stage: "failed", error: errorFor(cause, job.name) });
       } finally {
         controllers.current.delete(job.id);
@@ -240,15 +264,24 @@ function useUploadQueue() {
     const controller = new AbortController();
 
     const poll = async () => {
-      const pairs = live.split(",").map((entry) => entry.split(":") as [string, string]);
+      const pairs = live
+        .split(",")
+        .map((entry) => entry.split(":") as [string, string]);
       await Promise.all(
         pairs.map(async ([id, docId]) => {
           try {
             const status = await getDocumentStatus(docId, controller.signal);
             if (status.status === "completed") {
-              patch(id, { stage: "done", step: PIPELINE_STEPS.length, stepPct: 100 });
+              patch(id, {
+                stage: "done",
+                step: PIPELINE_STEPS.length,
+                stepPct: 100,
+              });
             } else if (status.status === "failed") {
-              patch(id, { stage: "failed", error: status.error ?? errorFor(null, docId) });
+              patch(id, {
+                stage: "failed",
+                error: status.error ?? errorFor(null, docId),
+              });
             } else {
               const docStatus = status.status as UploadJob["docStatus"];
               const step = stepForStatus(status.status, status.progress);
@@ -261,9 +294,18 @@ function useUploadQueue() {
                 prev.map((j) => {
                   if (j.id !== id) return j;
                   const moved =
-                    j.docStatus !== docStatus || j.step !== step || j.stepPct !== stepPct;
+                    j.docStatus !== docStatus ||
+                    j.step !== step ||
+                    j.stepPct !== stepPct;
                   return moved
-                    ? { ...j, docStatus, step, stepPct, lastChangeAt: Date.now(), stalledMs: 0 }
+                    ? {
+                        ...j,
+                        docStatus,
+                        step,
+                        stepPct,
+                        lastChangeAt: Date.now(),
+                        stalledMs: 0,
+                      }
                     : j;
                 }),
               );
@@ -351,7 +393,13 @@ function useUploadQueue() {
     setJobs((prev) =>
       prev.map((j) =>
         j.id === id
-          ? { ...j, error: undefined, stage: "processing", lastChangeAt: Date.now(), stalledMs: 0 }
+          ? {
+              ...j,
+              error: undefined,
+              stage: "processing",
+              lastChangeAt: Date.now(),
+              stalledMs: 0,
+            }
           : j,
       ),
     );
@@ -366,7 +414,9 @@ function useUploadQueue() {
   const cancel = useCallback((id: string) => {
     controllers.current.get(id)?.abort();
     controllers.current.delete(id);
-    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, stage: "cancelled" } : j)));
+    setJobs((prev) =>
+      prev.map((j) => (j.id === id ? { ...j, stage: "cancelled" } : j)),
+    );
   }, []);
 
   const remove = useCallback((id: string) => {
@@ -378,7 +428,12 @@ function useUploadQueue() {
   const clearFinished = useCallback(
     () =>
       setJobs((prev) =>
-        prev.filter((j) => j.stage !== "done" && j.stage !== "cancelled" && j.stage !== "rejected"),
+        prev.filter(
+          (j) =>
+            j.stage !== "done" &&
+            j.stage !== "cancelled" &&
+            j.stage !== "rejected",
+        ),
       ),
     [],
   );
@@ -393,7 +448,8 @@ function useUploadQueue() {
 }
 
 export function UploadView() {
-  const { jobs, add, retry, rerun, cancel, remove, clearFinished, clearAll } = useUploadQueue();
+  const { jobs, add, retry, rerun, cancel, remove, clearFinished, clearAll } =
+    useUploadQueue();
   const health = useHealth();
   const [dragging, setDragging] = useState(false);
   const [dragCount, setDragCount] = useState(0);
@@ -402,7 +458,9 @@ export function UploadView() {
   const { toasts, push, dismiss } = useToasts();
   const announced = useRef(new Set<string>());
 
-  const uploading = jobs.filter((j) => j.stage === "uploading" || j.stage === "queued");
+  const uploading = jobs.filter(
+    (j) => j.stage === "uploading" || j.stage === "queued",
+  );
   const processing = jobs.filter((j) => j.stage === "processing");
   const done = jobs.filter((j) => j.stage === "done");
   const failed = jobs.filter((j) => j.stage === "failed");
@@ -411,7 +469,10 @@ export function UploadView() {
   const inFlight = uploading.length + processing.length;
   const finished = inFlight === 0 && jobs.length > 0;
 
-  const uploadedMb = jobs.reduce((sum, j) => sum + (j.sizeMb * j.uploadPct) / 100, 0);
+  const uploadedMb = jobs.reduce(
+    (sum, j) => sum + (j.sizeMb * j.uploadPct) / 100,
+    0,
+  );
   const totalMb = jobs.reduce((sum, j) => sum + j.sizeMb, 0);
   const uploadPct = totalMb ? Math.round((uploadedMb / totalMb) * 100) : 0;
 
@@ -422,9 +483,19 @@ export function UploadView() {
       if (announced.current.has(j.id + j.stage + j.retries)) continue;
       announced.current.add(j.id + j.stage + j.retries);
       if (j.stage === "done") {
-        push({ tone: "--ok", glyph: "✓", title: "Document indexed", body: `${j.name} finished in ${fmtElapsed(j.elapsedMs)}.` });
+        push({
+          tone: "--ok",
+          glyph: "✓",
+          title: "Document indexed",
+          body: `${j.name} finished in ${fmtElapsed(j.elapsedMs)}.`,
+        });
       } else {
-        push({ tone: "--bad", glyph: "✕", title: "Pipeline failed", body: `${j.name} — ${j.error?.code ?? "unknown error"}.` });
+        push({
+          tone: "--bad",
+          glyph: "✕",
+          title: "Pipeline failed",
+          body: `${j.name} — ${j.error?.code ?? "unknown error"}.`,
+        });
       }
     }
   }, [jobs, push]);
@@ -474,18 +545,47 @@ export function UploadView() {
     >
       {/* Header --------------------------------------------------------- */}
       <Anim
-        style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+        style={{
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+        }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.025em", color: "var(--text)" }}>Upload</span>
+          <span
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              letterSpacing: "-.025em",
+              color: "var(--text)",
+            }}
+          >
+            Upload
+          </span>
           <span style={{ fontSize: 12, color: "var(--text-3)" }}>
             Ingest documents and track pipeline progress · {WORKSPACE.region}
           </span>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <div
             className="card"
-            style={{ display: "flex", alignItems: "center", gap: 8, height: 36, padding: "0 12px", borderRadius: 10 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              height: 36,
+              padding: "0 12px",
+              borderRadius: 10,
+            }}
           >
             <span
               className="dot"
@@ -506,17 +606,24 @@ export function UploadView() {
             >
               {health.label}
             </span>
-            <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
+            <span
+              className="mono"
+              style={{ fontSize: 11, color: "var(--text-3)" }}
+            >
               p50 3.4s
             </span>
           </div>
-          <Button variant="surface" size="dmQuiet">Connect bucket</Button>
         </div>
       </Anim>
 
       {/* Dropzone ------------------------------------------------------- */}
       <Anim
-        style={{ flex: "none", display: "flex", flexDirection: "column", gap: 10 }}
+        style={{
+          flex: "none",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
       >
         <input
           ref={inputRef}
@@ -530,207 +637,360 @@ export function UploadView() {
         />
 
         <AnimatePresence mode="wait" initial={false}>
-        {dragging ? (
-          <Anim
-            key="dragging"
-            preset="scale"
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            style={{
-              ...dropzoneBase,
-              border: "1.5px solid var(--accent)",
-              background: "var(--accent-soft)",
-              transition: "border-color .18s ease, background .18s ease",
-            }}
-          >
-            <div
+          {dragging ? (
+            <Anim
+              key="dragging"
+              preset="scale"
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
               style={{
-                width: 48,
-                height: 48,
-                borderRadius: 10,
-                border: "1px solid var(--accent-border)",
-                background: "var(--surface)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 18,
-                color: "var(--accent)",
-              }}
-            >
-              ↓
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: "var(--accent)" }}>
-                Drop to upload{dragCount ? ` ${dragCount} file${dragCount === 1 ? "" : "s"}` : ""}
-              </span>
-              <span className="mono" style={{ fontSize: 12, color: "var(--text-2)" }}>
-                {UPLOAD_LIMITS.extensions.join(", ").toUpperCase()} · max {UPLOAD_LIMITS.maxMb} MB each
-              </span>
-            </div>
-          </Anim>
-        ) : inFlight > 0 ? (
-          <Anim
-            key="inflight"
-            preset="scale"
-            style={{
-              ...dropzoneBase,
-              gap: 18,
-              padding: 32,
-              border: "1px solid var(--border)",
-              background: "var(--surface)",
-            }}
-          >
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 10,
-                border: "1px solid var(--accent-border)",
+                ...dropzoneBase,
+                border: "1.5px solid var(--accent)",
                 background: "var(--accent-soft)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                transition: "border-color .18s ease, background .18s ease",
               }}
             >
-              <Spinner size={18} />
-            </div>
-            <div style={{ width: 440, maxWidth: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "baseline" }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
-                  {uploading.length > 0
-                    ? `Uploading ${uploading.length} file${uploading.length === 1 ? "" : "s"}`
-                    : `Processing ${processing.length} file${processing.length === 1 ? "" : "s"}`}
-                </span>
-                <span className="mono" style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-2)" }}>
-                  {uploadPct}%
-                </span>
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  border: "1px solid var(--accent-border)",
+                  background: "var(--surface)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 18,
+                  color: "var(--accent)",
+                }}
+              >
+                ↓
               </div>
-              <div style={{ height: 6, borderRadius: 10, background: "var(--border)", overflow: "hidden" }}>
-                <div style={{ width: `${uploadPct}%`, height: "100%", background: "var(--accent)", transition: "width .2s linear" }} />
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: "var(--accent)",
+                  }}
+                >
+                  Drop to upload
+                  {dragCount
+                    ? ` ${dragCount} file${dragCount === 1 ? "" : "s"}`
+                    : ""}
+                </span>
                 <span
                   className="mono"
-                  style={{ fontSize: 11, color: "var(--text-3)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  style={{ fontSize: 12, color: "var(--text-2)" }}
                 >
-                  {(uploading[0] ?? processing[0])?.name} · {uploadedMb.toFixed(1)} / {totalMb.toFixed(1)} MB
-                </span>
-                <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-3)", flex: "none" }}>
-                  {done.length} of {jobs.length} complete
+                  {UPLOAD_LIMITS.extensions.join(", ").toUpperCase()} · max{" "}
+                  {UPLOAD_LIMITS.maxMb} MB each
                 </span>
               </div>
-            </div>
-            <Button variant="outlineStrong" size="dmQuiet" onClick={() => setConfirmClear(true)} style={{ height: 30, padding: "0 12px" }}>
-              Cancel all
-            </Button>
-          </Anim>
-        ) : finished ? (
-          <Anim
-            key="finished"
-            preset="scale"
-            style={{
-              ...dropzoneBase,
-              border: `1px solid var(${failed.length ? "--warn" : "--ok"}-border)`,
-              background: `var(${failed.length ? "--warn" : "--ok"}-soft)`,
-            }}
-          >
-            <Anim
-              preset="pop"
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 10,
-                border: `1px solid var(${failed.length ? "--warn" : "--ok"}-border)`,
-                background: "var(--surface)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 18,
-                color: `var(${failed.length ? "--warn" : "--ok"})`,
-              }}
-            >
-              {failed.length ? "!" : "✓"}
             </Anim>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center", maxWidth: 460 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
-                {failed.length === 0
-                  ? `${done.length} file${done.length === 1 ? "" : "s"} indexed`
-                  : `${done.length} of ${done.length + failed.length} files indexed`}
-              </span>
-              <span style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text-2)", textWrap: "pretty" }}>
-                {failed.length === 0
-                  ? "Every document completed classification, extraction, PII scanning and risk scoring."
-                  : `${failed.length} document${failed.length === 1 ? "" : "s"} stopped mid-pipeline. Retry below — extraction failures usually clear on a second run.`}
-                {rejected.length > 0 && ` ${rejected.length} file${rejected.length === 1 ? " was" : "s were"} rejected before upload.`}
-              </span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Button size="dm" onClick={() => inputRef.current?.click()} style={{ padding: "0 16px" }}>
-                Upload more
-              </Button>
-              <Link
-                href="/documents"
-                style={{ height: 32, display: "inline-flex", alignItems: "center", fontSize: 13, fontWeight: 500, padding: "0 8px" }}
-              >
-                View documents →
-              </Link>
-            </div>
-          </Anim>
-        ) : (
-          <Anim
-            key="idle"
-            preset="scale"
-            className="hover-surface"
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            onClick={() => inputRef.current?.click()}
-            style={{
-              ...dropzoneBase,
-              border: "1.5px dashed var(--border-strong)",
-              background: "var(--surface)",
-              cursor: "pointer",
-              transition: "border-color .18s ease, background .18s ease",
-            }}
-          >
-            <div
+          ) : inFlight > 0 ? (
+            <Anim
+              key="inflight"
+              preset="scale"
               style={{
-                width: 48,
-                height: 48,
-                borderRadius: 10,
+                ...dropzoneBase,
+                gap: 18,
+                padding: 32,
                 border: "1px solid var(--border)",
-                background: "var(--surface-2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                background: "var(--surface)",
               }}
             >
-              <CloudUploadIcon size={22} color="var(--text-3)" />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>Drag documents here to upload</span>
-              <span style={{ fontSize: 13, color: "var(--text-2)" }}>
-                or <span style={{ color: "var(--accent)" }}>browse your computer</span> · paste with ⌘V
-              </span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-              <Button size="dm" onClick={() => inputRef.current?.click()} style={{ height: 34, fontWeight: 500, padding: "0 16px" }}>
-                Select files
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  border: "1px solid var(--accent-border)",
+                  background: "var(--accent-soft)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Spinner size={18} />
+              </div>
+              <div
+                style={{
+                  width: 440,
+                  maxWidth: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "baseline" }}>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: "var(--text)",
+                    }}
+                  >
+                    {uploading.length > 0
+                      ? `Uploading ${uploading.length} file${uploading.length === 1 ? "" : "s"}`
+                      : `Processing ${processing.length} file${processing.length === 1 ? "" : "s"}`}
+                  </span>
+                  <span
+                    className="mono"
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 12,
+                      color: "var(--text-2)",
+                    }}
+                  >
+                    {uploadPct}%
+                  </span>
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 10,
+                    background: "var(--border)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${uploadPct}%`,
+                      height: "100%",
+                      background: "var(--accent)",
+                      transition: "width .2s linear",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{ display: "flex", alignItems: "baseline", gap: 8 }}
+                >
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-3)",
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {(uploading[0] ?? processing[0])?.name} ·{" "}
+                    {uploadedMb.toFixed(1)} / {totalMb.toFixed(1)} MB
+                  </span>
+                  <span
+                    className="mono"
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 11,
+                      color: "var(--text-3)",
+                      flex: "none",
+                    }}
+                  >
+                    {done.length} of {jobs.length} complete
+                  </span>
+                </div>
+              </div>
+              <Button
+                variant="outlineStrong"
+                size="dmQuiet"
+                onClick={() => setConfirmClear(true)}
+                style={{ height: 30, padding: "0 12px" }}
+              >
+                Cancel all
               </Button>
-            </div>
-          </Anim>
-        )}
+            </Anim>
+          ) : finished ? (
+            <Anim
+              key="finished"
+              preset="scale"
+              style={{
+                ...dropzoneBase,
+                border: `1px solid var(${failed.length ? "--warn" : "--ok"}-border)`,
+                background: `var(${failed.length ? "--warn" : "--ok"}-soft)`,
+              }}
+            >
+              <Anim
+                preset="pop"
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  border: `1px solid var(${failed.length ? "--warn" : "--ok"}-border)`,
+                  background: "var(--surface)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 18,
+                  color: `var(${failed.length ? "--warn" : "--ok"})`,
+                }}
+              >
+                {failed.length ? "!" : "✓"}
+              </Anim>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                  textAlign: "center",
+                  maxWidth: 460,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                  }}
+                >
+                  {failed.length === 0
+                    ? `${done.length} file${done.length === 1 ? "" : "s"} indexed`
+                    : `${done.length} of ${done.length + failed.length} files indexed`}
+                </span>
+                <span
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    color: "var(--text-2)",
+                    textWrap: "pretty",
+                  }}
+                >
+                  {failed.length === 0
+                    ? "Every document completed classification, extraction, PII scanning and risk scoring."
+                    : `${failed.length} document${failed.length === 1 ? "" : "s"} stopped mid-pipeline. Retry below — extraction failures usually clear on a second run.`}
+                  {rejected.length > 0 &&
+                    ` ${rejected.length} file${rejected.length === 1 ? " was" : "s were"} rejected before upload.`}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Button
+                  size="dm"
+                  onClick={() => inputRef.current?.click()}
+                  style={{ padding: "0 16px" }}
+                >
+                  Upload more
+                </Button>
+                <Link
+                  href="/documents"
+                  style={{
+                    height: 32,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    padding: "0 8px",
+                  }}
+                >
+                  View documents →
+                </Link>
+              </div>
+            </Anim>
+          ) : (
+            <Anim
+              key="idle"
+              preset="scale"
+              className="hover-surface"
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onClick={() => inputRef.current?.click()}
+              style={{
+                ...dropzoneBase,
+                border: "1.5px dashed var(--border-strong)",
+                background: "var(--surface)",
+                cursor: "pointer",
+                transition: "border-color .18s ease, background .18s ease",
+              }}
+            >
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface-2)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CloudUploadIcon size={22} color="var(--text-3)" />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                  }}
+                >
+                  Drag documents here to upload
+                </span>
+                <span style={{ fontSize: 13, color: "var(--text-2)" }}>
+                  or{" "}
+                  <span style={{ color: "var(--accent)" }}>
+                    browse your computer
+                  </span>{" "}
+                  · paste with ⌘V
+                </span>
+              </div>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Button
+                  size="dm"
+                  onClick={() => inputRef.current?.click()}
+                  style={{ height: 34, fontWeight: 500, padding: "0 16px" }}
+                >
+                  Select files
+                </Button>
+              </div>
+            </Anim>
+          )}
         </AnimatePresence>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "0 2px", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            padding: "0 2px",
+            flexWrap: "wrap",
+          }}
+        >
           {[
             `${UPLOAD_LIMITS.extensions.map((e) => e.toUpperCase()).join(" · ")}`,
             `max ${UPLOAD_LIMITS.maxMb} MB per file`,
             `up to ${UPLOAD_LIMITS.maxBatch} files per batch`,
           ].map((t, i) => (
             <span key={t} style={{ display: "contents" }}>
-              {i > 0 && <span style={{ width: 1, height: 12, background: "var(--border)" }} />}
-              <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
+              {i > 0 && (
+                <span
+                  style={{ width: 1, height: 12, background: "var(--border)" }}
+                />
+              )}
+              <span
+                className="mono"
+                style={{ fontSize: 11, color: "var(--text-3)" }}
+              >
                 {t}
               </span>
             </span>
@@ -740,8 +1000,9 @@ export function UploadView() {
             style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-3)" }}
             title={health.detail}
           >
-            {health.services.map((svc) => `${svc.service}: ${svc.state}`).join("  \u00b7  ") ||
-              "checking services\u2026"}
+            {health.services
+              .map((svc) => `${svc.service}: ${svc.state}`)
+              .join("  \u00b7  ") || "checking services\u2026"}
           </span>
         </div>
       </Anim>
@@ -776,8 +1037,15 @@ export function UploadView() {
               flexWrap: "wrap",
             }}
           >
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Upload queue</span>
-            <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
+            <span
+              style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}
+            >
+              Upload queue
+            </span>
+            <span
+              className="mono"
+              style={{ fontSize: 11, color: "var(--text-3)" }}
+            >
               {[
                 `${jobs.length} file${jobs.length === 1 ? "" : "s"}`,
                 done.length && `${done.length} complete`,
@@ -790,13 +1058,26 @@ export function UploadView() {
                 .filter(Boolean)
                 .join(" · ")}
             </span>
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            <div
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
               {done.length + cancelled.length + rejected.length > 0 && (
-                <Button variant="outlineStrong" size="dmSm" onClick={clearFinished}>
+                <Button
+                  variant="outlineStrong"
+                  size="dmSm"
+                  onClick={clearFinished}
+                >
                   Clear finished
                 </Button>
               )}
-              <Button variant="outlineStrong" size="dmSm"
+              <Button
+                variant="outlineStrong"
+                size="dmSm"
                 onClick={() => setConfirmClear(true)}
                 disabled={jobs.length === 0}
               >
@@ -806,16 +1087,16 @@ export function UploadView() {
           </div>
 
           <AnimatePresence initial={false}>
-          {jobs.map((job) => (
-            <QueueRow
-              key={job.id}
-              job={job}
-              onRetry={() => retry(job.id)}
-              onRerun={() => job.docId && void rerun(job.id, job.docId)}
-              onCancel={() => cancel(job.id)}
-              onRemove={() => remove(job.id)}
-            />
-          ))}
+            {jobs.map((job) => (
+              <QueueRow
+                key={job.id}
+                job={job}
+                onRetry={() => retry(job.id)}
+                onRerun={() => job.docId && void rerun(job.id, job.docId)}
+                onCancel={() => cancel(job.id)}
+                onRemove={() => remove(job.id)}
+              />
+            ))}
           </AnimatePresence>
         </Anim>
       )}
@@ -869,7 +1150,10 @@ function isStalled(job: UploadJob): boolean {
   return job.stage === "processing" && job.stalledMs > STALLED_MS;
 }
 
-const STAGE_META: Record<UploadJob["stage"], { tone: string; label: (j: UploadJob) => string }> = {
+const STAGE_META: Record<
+  UploadJob["stage"],
+  { tone: string; label: (j: UploadJob) => string }
+> = {
   queued: { tone: "--idle", label: () => "Waiting for a slot" },
   uploading: { tone: "--accent", label: (j) => `Uploading ${j.uploadPct}%` },
   processing: {
@@ -878,10 +1162,15 @@ const STAGE_META: Record<UploadJob["stage"], { tone: string; label: (j: UploadJo
     // distinguishes waiting for a worker from moving through the stages.
     tone: "--accent",
     label: (j) =>
-      j.docStatus === "queued" ? "Queued" : PIPELINE_STEPS[Math.max(0, j.step - 1)],
+      j.docStatus === "queued"
+        ? "Queued"
+        : PIPELINE_STEPS[Math.max(0, j.step - 1)],
   },
   done: { tone: "--ok", label: () => "Complete" },
-  failed: { tone: "--bad", label: (j) => `Failed at ${PIPELINE_STEPS[Math.max(0, j.step - 1)]}` },
+  failed: {
+    tone: "--bad",
+    label: (j) => `Failed at ${PIPELINE_STEPS[Math.max(0, j.step - 1)]}`,
+  },
   cancelled: { tone: "--idle", label: () => "Cancelled" },
   rejected: { tone: "--warn", label: () => "Rejected" },
 };
@@ -901,7 +1190,10 @@ function QueueRow({
 }) {
   const meta = STAGE_META[job.stage];
   const tone = meta.tone;
-  const showTrack = job.stage === "processing" || job.stage === "done" || job.stage === "failed";
+  const showTrack =
+    job.stage === "processing" ||
+    job.stage === "done" ||
+    job.stage === "failed";
 
   return (
     // `layout` closes the gap when a row is removed, instead of the rows
@@ -927,7 +1219,14 @@ function QueueRow({
         opacity: job.stage === "cancelled" ? 0.7 : 1,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
         <span
           className="mono"
           style={{
@@ -958,7 +1257,8 @@ function QueueRow({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            textDecoration: job.stage === "cancelled" ? "line-through" : undefined,
+            textDecoration:
+              job.stage === "cancelled" ? "line-through" : undefined,
           }}
         >
           {job.name}
@@ -979,7 +1279,10 @@ function QueueRow({
             in library
           </span>
         )}
-        <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}>
+        <span
+          className="mono"
+          style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}
+        >
           {job.sizeMb.toFixed(1)} MB
         </span>
         {job.stage !== "rejected" && (
@@ -998,23 +1301,43 @@ function QueueRow({
             padding: "2px 8px",
             borderRadius: 10,
             color: `var(${tone})`,
-            background: job.stage === "failed" || job.stage === "rejected" ? "var(--surface)" : `var(${tone}-soft)`,
+            background:
+              job.stage === "failed" || job.stage === "rejected"
+                ? "var(--surface)"
+                : `var(${tone}-soft)`,
             border: `1px solid var(${tone}-border)`,
           }}
         >
           {job.stage === "uploading" || job.stage === "processing" ? (
-            <Spinner size={9} color={`var(${tone})`} track={`var(${tone}-border)`} />
+            <Spinner
+              size={9}
+              color={`var(${tone})`}
+              track={`var(${tone}-border)`}
+            />
           ) : (
             <span className="dot" style={{ background: `var(${tone})` }} />
           )}
           {meta.label(job)}
           {job.retries > 0 && job.stage !== "failed" && (
-            <span className="mono" style={{ opacity: 0.7 }}>· retry {job.retries}</span>
+            <span className="mono" style={{ opacity: 0.7 }}>
+              · retry {job.retries}
+            </span>
           )}
         </span>
 
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
-          <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flex: "none",
+          }}
+        >
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: "var(--text-3)" }}
+          >
             {job.stage === "done"
               ? `Completed in ${fmtElapsed(job.elapsedMs)}`
               : job.stage === "failed"
@@ -1024,7 +1347,10 @@ function QueueRow({
                   : `Elapsed ${fmtElapsed(job.elapsedMs)}`}
           </span>
           {job.stage === "done" && job.docId && (
-            <Link href={`/documents/${job.docId}`} style={{ fontSize: 12, fontWeight: 500 }}>
+            <Link
+              href={`/documents/${job.docId}`}
+              style={{ fontSize: 12, fontWeight: 500 }}
+            >
               View document →
             </Link>
           )}
@@ -1036,14 +1362,23 @@ function QueueRow({
                 </Button>
               ) : job.error?.retryable ? (
                 <Button size="dmSm" onClick={onRetry}>
-                  Retry {PIPELINE_STEPS[Math.max(0, job.step - 1)].toLowerCase()}
+                  Retry{" "}
+                  {PIPELINE_STEPS[Math.max(0, job.step - 1)].toLowerCase()}
                 </Button>
               ) : (
-                <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                <span
+                  className="mono"
+                  style={{ fontSize: 11, color: "var(--text-3)" }}
+                >
                   not retryable
                 </span>
               )}
-              <Button variant="outlineStrong" size="dmSm" onClick={onRemove} style={{ padding: "0 10px" }}>
+              <Button
+                variant="outlineStrong"
+                size="dmSm"
+                onClick={onRemove}
+                style={{ padding: "0 10px" }}
+              >
                 Remove
               </Button>
             </div>
@@ -1056,19 +1391,36 @@ function QueueRow({
               <Button size="dmSm" onClick={onRerun}>
                 Reprocess
               </Button>
-              <Button variant="outlineStrong" size="dmSm" onClick={onRemove} style={{ padding: "0 10px" }}>
+              <Button
+                variant="outlineStrong"
+                size="dmSm"
+                onClick={onRemove}
+                style={{ padding: "0 10px" }}
+              >
                 Dismiss
               </Button>
             </div>
           )}
           {!job.adopted &&
-            (job.stage === "uploading" || job.stage === "processing" || job.stage === "queued") && (
-              <Button variant="outlineStrong" size="dmSm" onClick={onCancel} style={{ padding: "0 10px" }}>
+            (job.stage === "uploading" ||
+              job.stage === "processing" ||
+              job.stage === "queued") && (
+              <Button
+                variant="outlineStrong"
+                size="dmSm"
+                onClick={onCancel}
+                style={{ padding: "0 10px" }}
+              >
                 Cancel
               </Button>
             )}
           {(job.stage === "cancelled" || job.stage === "rejected") && (
-            <Button variant="outlineStrong" size="dmSm" onClick={onRemove} style={{ padding: "0 10px" }}>
+            <Button
+              variant="outlineStrong"
+              size="dmSm"
+              onClick={onRemove}
+              style={{ padding: "0 10px" }}
+            >
               Remove
             </Button>
           )}
@@ -1080,7 +1432,13 @@ function QueueRow({
           <div style={{ minWidth: 620 }}>
             <PipelineTrack
               step={job.step}
-              state={job.stage === "done" ? "done" : job.stage === "failed" ? "failed" : "running"}
+              state={
+                job.stage === "done"
+                  ? "done"
+                  : job.stage === "failed"
+                    ? "failed"
+                    : "running"
+              }
             />
           </div>
         </div>
@@ -1088,11 +1446,22 @@ function QueueRow({
 
       {job.stage === "uploading" && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Sweep style={{ flex: 1, height: 4, borderRadius: 10, background: "var(--border)" }}>
+          <Sweep
+            style={{
+              flex: 1,
+              height: 4,
+              borderRadius: 10,
+              background: "var(--border)",
+            }}
+          >
             <GrowBar pct={job.uploadPct} color="var(--accent)" />
           </Sweep>
-          <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}>
-            {((job.sizeMb * job.uploadPct) / 100).toFixed(1)} / {job.sizeMb.toFixed(1)} MB
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}
+          >
+            {((job.sizeMb * job.uploadPct) / 100).toFixed(1)} /{" "}
+            {job.sizeMb.toFixed(1)} MB
           </span>
         </div>
       )}
@@ -1101,8 +1470,18 @@ function QueueRow({
           could not say. It is a wait, not progress, so it renders as one. */}
       {job.stage === "processing" && job.docStatus === "queued" && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Spinner size={11} color={isStalled(job) ? "var(--warn)" : undefined} />
-          <span style={{ fontSize: 12, color: "var(--text-2)", flex: "1 1 auto", minWidth: 0 }}>
+          <Spinner
+            size={11}
+            color={isStalled(job) ? "var(--warn)" : undefined}
+          />
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--text-2)",
+              flex: "1 1 auto",
+              minWidth: 0,
+            }}
+          >
             {isStalled(job)
               ? `Still queued after ${fmtElapsed(job.stalledMs)} — no processing worker has claimed this document.`
               : "Queued — waiting for a processing worker."}
@@ -1113,26 +1492,54 @@ function QueueRow({
 
       {job.stage === "processing" && job.docStatus !== "queued" && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1, height: 4, borderRadius: 10, background: "var(--border)", overflow: "hidden" }}>
-            <div style={{ width: `${job.stepPct}%`, height: "100%", background: "var(--accent)", transition: "width .16s linear" }} />
+          <div
+            style={{
+              flex: 1,
+              height: 4,
+              borderRadius: 10,
+              background: "var(--border)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${job.stepPct}%`,
+                height: "100%",
+                background: "var(--accent)",
+                transition: "width .16s linear",
+              }}
+            />
           </div>
-          <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}>
-            {PIPELINE_STEPS[Math.max(0, job.step - 1)]} — {Math.min(100, job.stepPct)}%
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: "var(--text-3)", flex: "none" }}
+          >
+            {PIPELINE_STEPS[Math.max(0, job.step - 1)]} —{" "}
+            {Math.min(100, job.stepPct)}%
           </span>
         </div>
       )}
 
       {/* A worker took the job and stopped reporting. Indistinguishable from
           slow work at a glance, which is exactly why it needs saying. */}
-      {job.stage === "processing" && job.docStatus === "processing" && isStalled(job) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 12, color: "var(--text-2)", flex: "1 1 auto", minWidth: 0 }}>
-            No progress reported for {fmtElapsed(job.stalledMs)}. The document is still marked
-            processing — the worker may have stopped.
-          </span>
-          <StallBadge />
-        </div>
-      )}
+      {job.stage === "processing" &&
+        job.docStatus === "processing" &&
+        isStalled(job) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--text-2)",
+                flex: "1 1 auto",
+                minWidth: 0,
+              }}
+            >
+              No progress reported for {fmtElapsed(job.stalledMs)}. The document
+              is still marked processing — the worker may have stopped.
+            </span>
+            <StallBadge />
+          </div>
+        )}
 
       {job.stage === "failed" && job.error && (
         <InlineError
@@ -1143,7 +1550,11 @@ function QueueRow({
       )}
 
       {job.stage === "rejected" && job.rejected && (
-        <InlineError tone="--warn" title="File rejected before upload" detail={job.rejected} />
+        <InlineError
+          tone="--warn"
+          title="File rejected before upload"
+          detail={job.rejected}
+        />
       )}
     </Anim>
   );

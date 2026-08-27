@@ -68,7 +68,7 @@ export function Topbar() {
           </AnimatePresence>
         </Button>
 
-        <Button
+        {/* <Button
           variant="ghost"
           size="icon-lg"
           className="relative rounded-full"
@@ -80,7 +80,7 @@ export function Topbar() {
             animate={{ scale: [1, 1.25, 1] }}
             transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
           />
-        </Button>
+        </Button> */}
 
         <span className="mx-1 hidden h-6 w-px flex-none bg-[var(--border)] sm:block" />
 
