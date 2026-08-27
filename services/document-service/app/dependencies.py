@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.queue.redis_streams import RedisStreamPublisher
+from app.repositories.analysis import AnalysisRepository
 from app.repositories.documents import DocumentRepository
 from app.services.documents import DocumentService
 from app.storage.local import LocalStorage
@@ -37,6 +38,7 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
 
     return DocumentService(
         repository=DocumentRepository(db),
+        analysis=AnalysisRepository(db),
         storage=LocalStorage(settings.storage_dir),
         publisher=RedisStreamPublisher(
             redis_url=settings.redis_url,

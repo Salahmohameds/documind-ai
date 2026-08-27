@@ -84,6 +84,11 @@ class RiskCategorySchema(BaseModel):
 
     name: str
     score: int
+    # ai-service derives per-category risk from which rules fired, so a band is
+    # the real value and ``score`` is a stand-in positioned to make the UI's
+    # own Low/Medium/High thresholds agree with it. Present so the UI can show
+    # the band rather than implying a precision that was never measured.
+    band: str | None = None
 
 
 class FindingSchema(BaseModel):

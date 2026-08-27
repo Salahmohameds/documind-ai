@@ -16,9 +16,11 @@ from app.errors import (
     QueueUnavailableError,
 )
 from app.models import Document
+from app.repositories.analysis import AnalysisRepository
 from app.repositories.documents import DocumentRepository
 from app.schemas import (
     BulkFailedItemSchema,
+    ClassificationSchema,
     BulkResultSchema,
     DocErrorSchema,
     DocumentDetailSchema,
@@ -32,10 +34,18 @@ _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 class DocumentService:
-    def __init__(self, *, repository: DocumentRepository, storage: DocumentStorage, publisher) -> None:
+    def __init__(
+        self,
+        *,
+        repository: DocumentRepository,
+        storage: DocumentStorage,
+        publisher,
+        analysis: AnalysisRepository,
+    ) -> None:
         self._repository = repository
         self._storage = storage
         self._publisher = publisher
+        self._analysis = analysis
 
     async def create(self, upload: UploadFile) -> DocumentSummarySchema:
         filename = self._safe_pdf_filename(upload.filename)
@@ -76,9 +86,41 @@ class DocumentService:
         return self._summary(document)
 
     def get(self, document_id: str) -> DocumentDetailSchema:
+        """One document, with whatever the pipeline has written back to it.
+
+        The analysis lives in three tables owned by processing-service. A
+        document that has not been processed yet simply has no rows there, and
+        every analysis field comes back empty — which is what the UI's "not
+        analysed yet" states are for.
+        """
         document = self._get_or_raise(document_id)
         summary = self._summary(document)
-        return DocumentDetailSchema(**summary.model_dump())
+
+        analysis = self._analysis
+        fields, fields_expected = analysis.extracted_fields(document_id)
+        risk_row = analysis.risk(document_id)
+        findings = analysis.findings(risk_row)
+
+        detail = DocumentDetailSchema(**summary.model_dump())
+        detail.fields = fields
+        detail.fields_expected = fields_expected
+        detail.risk_categories = analysis.risk_categories(risk_row)
+        detail.findings = findings
+        detail.classification = self._classification(document)
+
+        if risk_row is not None and risk_row.risk_score is not None:
+            detail.risk = risk_row.risk_score
+            # Only a completed run has earned a verdict. A document that failed
+            # at indexing may still have been scored on the way there, and
+            # reporting "Auto-approve" for a run that never finished states a
+            # conclusion nobody reached.
+            if detail.status == "completed":
+                detail.verdict = self._verdict(risk_row.risk_score)
+
+        # Flags are what the library's exception count is drawn from, so it has
+        # to mean the same thing here as it does there: rules that fired.
+        detail.flags = len(findings)
+        return detail
 
     def get_status(self, document_id: str) -> DocumentStatusSchema:
         document = self._get_or_raise(document_id)
@@ -95,8 +137,23 @@ class DocumentService:
 
     def list(self, *, page: int, page_size: int) -> DocumentPageSchema:
         documents, total = self._repository.list(page=page, page_size=page_size)
+
+        # One query for the page rather than one per row: the library polls
+        # this endpoint every few seconds while anything is in the pipeline.
+        scores = self._analysis.risk_scores([d.document_id for d in documents])
+
+        rows = []
+        for document in documents:
+            row = self._summary(document)
+            score = scores.get(document.document_id)
+            if score is not None:
+                row.risk = score
+                if row.status == "completed":
+                    row.verdict = self._verdict(score)
+            rows.append(row)
+
         return DocumentPageSchema(
-            rows=[self._summary(document) for document in documents],
+            rows=rows,
             total=total,
             unfilteredTotal=total,
             page=page,
@@ -227,6 +284,35 @@ class DocumentService:
         if not safe_name or "\x00" in safe_name or Path(safe_name).suffix.lower() != ".pdf":
             raise InvalidDocumentError("Only PDF files are supported.")
         return safe_name[:255]
+
+    @staticmethod
+    def _verdict(risk_score: int) -> str:
+        """The reviewer-facing call, banded the same way the UI bands risk."""
+        if risk_score >= 67:
+            return "Escalate"
+        if risk_score >= 34:
+            return "Review"
+        return "Auto-approve"
+
+    @staticmethod
+    def _classification(document: Document) -> ClassificationSchema | None:
+        """What the classifier decided, as far as it is recorded.
+
+        Only the label survives: processing-service writes the winning type
+        onto the document row and keeps neither the confidence nor the runner
+        up, so those are reported as zero and empty rather than invented. The
+        UI hides a runner-up with no name.
+        """
+        label = (document.document_type or "").strip()
+        if label == "" or label.upper() == "UNKNOWN":
+            return None
+        return ClassificationSchema(
+            label=label.title(),
+            subtype="",
+            confidence=0.0,
+            runner_up="",
+            runner_up_confidence=0.0,
+        )
 
     @staticmethod
     def _queue_error() -> DocErrorSchema:
