@@ -19,11 +19,21 @@
  * unconditionally by `next start`/the Docker image (see ./Dockerfile), so
  * this only ever fires against a genuinely unconfigured production
  * deployment, never local `next dev`.
+ *
+ * `next build` also runs with `NODE_ENV=production` and evaluates route
+ * modules' top-level code while collecting page data — with no ConfigMap
+ * yet in the picture, that would trip this same throw at build time
+ * instead of container runtime. `NEXT_PHASE=phase-production-build` is set
+ * only during that build step (never at runtime), so excluding it keeps
+ * the guard build-safe without weakening the runtime check it exists for.
  */
 function requiredServiceUrl(envVar: string, devFallback: string): string {
   const value = process.env[envVar];
   if (!value) {
-    if (process.env.NODE_ENV === "production") {
+    if (
+      process.env.NODE_ENV === "production" &&
+      process.env.NEXT_PHASE !== "phase-production-build"
+    ) {
       throw new Error(
         `${envVar} is not set. Set it to the in-cluster Service URL ` +
           `(e.g. http://document-service.documind.svc.cluster.local:8080) ` +
