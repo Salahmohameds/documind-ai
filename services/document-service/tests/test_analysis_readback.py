@@ -194,9 +194,25 @@ class TestRisk:
 
     @pytest.mark.parametrize(
         ("score", "verdict"),
-        [(8, "Auto-approve"), (33, "Auto-approve"), (34, "Review"), (66, "Review"), (67, "Escalate"), (95, "Escalate")],
+        [
+            (0, "Auto-approved"),
+            (33, "Auto-approved"),
+            # 34 is the UI's own elevated threshold; a document at or above it
+            # is what the dashboard's flagged panel selects for.
+            (34, "Needs review"),
+            (66, "Needs review"),
+            (67, "Needs review"),
+            (95, "Needs review"),
+        ],
     )
-    def test_verdict_bands_match_the_ui_thresholds(self, analysis_client, score, verdict):
+    def test_verdict_uses_the_vocabulary_the_frontend_declares(
+        self, analysis_client, score, verdict
+    ):
+        """`verdict` is a contract, not free text.
+
+        `lib/types.ts` declares exactly three values and the dashboard filters
+        on them. Emitting anything else empties that panel without failing.
+        """
         client, session = analysis_client
         _seed_document(session)
         _seed_risk(session, risk_score=score)

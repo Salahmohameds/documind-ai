@@ -287,12 +287,19 @@ class DocumentService:
 
     @staticmethod
     def _verdict(risk_score: int) -> str:
-        """The reviewer-facing call, banded the same way the UI bands risk."""
-        if risk_score >= 67:
-            return "Escalate"
-        if risk_score >= 34:
-            return "Review"
-        return "Auto-approve"
+        """The reviewer-facing call.
+
+        These three strings are the contract: ``verdict`` is declared in
+        ``frontend/documind/lib/types.ts`` as
+        ``"Auto-approved" | "Needs review" | "Pending"``, and the dashboard
+        selects the documents needing attention by matching on it. Inventing a
+        richer vocabulary here silently emptied that panel -- how severe a
+        document is, is what ``risk`` is for.
+
+        The threshold is the same one the UI bands risk with, so a document
+        marked elevated is a document that needs review.
+        """
+        return "Needs review" if risk_score >= 34 else "Auto-approved"
 
     @staticmethod
     def _classification(document: Document) -> ClassificationSchema | None:
