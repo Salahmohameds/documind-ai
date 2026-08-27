@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.queue.redis_streams import RedisStreamPublisher
+from app.repositories.analysis import AnalysisRepository
 from app.repositories.documents import DocumentRepository
 from app.services.documents import DocumentService
 from app.storage.base import DocumentStorage
@@ -50,6 +51,7 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
     """Construct the request-scoped Document Service dependencies."""
     return DocumentService(
         repository=DocumentRepository(db),
+        analysis=AnalysisRepository(db),
         storage=_build_storage(),
         publisher=RedisStreamPublisher(
             redis_url=settings.redis_url,

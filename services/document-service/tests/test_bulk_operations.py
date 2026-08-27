@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import get_document_service
 from app.main import app
+from app.repositories.analysis import AnalysisRepository
 from app.repositories.documents import DocumentRepository
 from app.services.documents import DocumentService
 from app.storage.local import LocalStorage
@@ -51,6 +52,7 @@ def bulk_client(tmp_path):
     publisher = RecordingPublisher()
     service = DocumentService(
         repository=DocumentRepository(session),
+        analysis=AnalysisRepository(session),
         storage=LocalStorage(str(tmp_path)),
         publisher=publisher,
     )
