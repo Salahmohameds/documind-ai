@@ -19,7 +19,7 @@ from app.auth.dependencies import AuthError
 from app.config import settings
 from app.logging_config import setup_logging
 from app.proxy import close_client
-from app.routes import auth, documents, health, search
+from app.routes import ai, auth, documents, health, search
 
 # ---------------------------------------------------------------------------
 # Logging — must be configured before any logger is used.
@@ -69,6 +69,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(search.router)
 app.include_router(documents.router)
+app.include_router(ai.router)
 
 
 # --- Middleware: request ID propagation ------------------------------------

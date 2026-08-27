@@ -52,6 +52,12 @@ _HOP_BY_HOP = frozenset(
         "te",
         "trailer",
         "upgrade",
+        # Prevent client-supplied identity headers from reaching downstream.
+        # The gateway injects trusted values from the JWT; any client-sent
+        # duplicates would be a privilege-escalation vector.
+        "x-user-email",
+        "x-user-role",
+        "x-request-id",
     }
 )
 
@@ -122,6 +128,16 @@ async def proxy_request(
             headers=forwarded_headers,
             content=body if body else None,
             params=dict(request.query_params),
+        )
+    except httpx.TimeoutException:
+        logger.error(
+            "proxy_timeout",
+            extra={"target_url": target_url},
+        )
+        return Response(
+            content='{"error":"Gateway Timeout","detail":"Downstream service timed out.","code":"ERR_PROXY_TIMEOUT"}',
+            status_code=504,
+            media_type="application/json",
         )
     except httpx.HTTPError as exc:
         logger.error(
