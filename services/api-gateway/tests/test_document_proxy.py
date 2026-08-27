@@ -208,3 +208,169 @@ class TestDownstreamResponse:
         )
         r = client.get("/documents/err", headers=_auth(_valid_token()))
         assert r.status_code == 500
+
+
+# ── Bulk operations: DELETE /documents, POST /documents/reprocess ───────
+#
+# Both are collection-level and body-carrying.  The contract worth pinning
+# here is that the ``{"ids": [...]}`` payload survives the proxy — a DELETE
+# with a body is unusual enough that a future refactor could silently drop
+# it — and that a per-id failure arrives as a 200 ``BulkResult``, not as an
+# error status.
+
+
+class TestBulkNoToken:
+    def test_delete_documents_no_token(self, client):
+        assert client.request("DELETE", "/documents", json={"ids": ["a"]}).status_code == 401
+
+    def test_reprocess_documents_no_token(self, client):
+        assert client.post("/documents/reprocess", json={"ids": ["a"]}).status_code == 401
+
+
+class TestBulkExpiredToken:
+    def test_delete_documents_expired(self, client):
+        r = client.request(
+            "DELETE", "/documents", json={"ids": ["a"]}, headers=_auth(_expired_token())
+        )
+        assert r.status_code == 401
+        assert r.json()["code"] == "ERR_AUTH"
+
+    def test_reprocess_documents_expired(self, client):
+        r = client.post(
+            "/documents/reprocess", json={"ids": ["a"]}, headers=_auth(_expired_token())
+        )
+        assert r.status_code == 401
+        assert r.json()["code"] == "ERR_AUTH"
+
+
+class TestBulkForwarding:
+    @respx.mock
+    def test_delete_documents_forwarded(self, client):
+        result = {"requested": 2, "succeeded": ["doc-1", "doc-2"], "failed": []}
+        route = respx.delete(f"{_DOC_URL}/documents").mock(
+            return_value=httpx.Response(200, json=result)
+        )
+        r = client.request(
+            "DELETE",
+            "/documents",
+            json={"ids": ["doc-1", "doc-2"]},
+            headers=_auth(_valid_token()),
+        )
+        assert r.status_code == 200
+        assert r.json() == result
+        assert route.called
+
+    @respx.mock
+    def test_delete_body_reaches_downstream(self, client):
+        """The ids payload must survive the proxy — a DELETE body is easy to lose."""
+        route = respx.delete(f"{_DOC_URL}/documents").mock(
+            return_value=httpx.Response(200, json={"requested": 1, "succeeded": ["doc-1"], "failed": []})
+        )
+        client.request(
+            "DELETE", "/documents", json={"ids": ["doc-1"]}, headers=_auth(_valid_token())
+        )
+        assert route.calls[0].request.content == b'{"ids":["doc-1"]}'
+
+    @respx.mock
+    def test_reprocess_forwarded(self, client):
+        result = {"requested": 1, "succeeded": ["doc-9"], "failed": []}
+        route = respx.post(f"{_DOC_URL}/documents/reprocess").mock(
+            return_value=httpx.Response(200, json=result)
+        )
+        r = client.post(
+            "/documents/reprocess", json={"ids": ["doc-9"]}, headers=_auth(_valid_token())
+        )
+        assert r.status_code == 200
+        assert r.json() == result
+        assert route.called
+
+    @respx.mock
+    def test_reprocess_body_reaches_downstream(self, client):
+        route = respx.post(f"{_DOC_URL}/documents/reprocess").mock(
+            return_value=httpx.Response(200, json={"requested": 1, "succeeded": [], "failed": []})
+        )
+        client.post(
+            "/documents/reprocess", json={"ids": ["doc-9"]}, headers=_auth(_valid_token())
+        )
+        assert route.calls[0].request.content == b'{"ids":["doc-9"]}'
+
+    @respx.mock
+    def test_reprocess_not_shadowed_by_document_id_route(self, client):
+        """``/documents/reprocess`` must not be read as ``/documents/{document_id}``."""
+        param_route = respx.get(f"{_DOC_URL}/documents/reprocess").mock(
+            return_value=httpx.Response(200, json={"id": "reprocess"})
+        )
+        bulk_route = respx.post(f"{_DOC_URL}/documents/reprocess").mock(
+            return_value=httpx.Response(200, json={"requested": 0, "succeeded": [], "failed": []})
+        )
+        client.post(
+            "/documents/reprocess", json={"ids": []}, headers=_auth(_valid_token())
+        )
+        assert bulk_route.called
+        assert not param_route.called
+
+
+class TestBulkHeaderInjection:
+    @respx.mock
+    def test_delete_injects_identity(self, client):
+        route = respx.delete(f"{_DOC_URL}/documents").mock(
+            return_value=httpx.Response(200, json={"requested": 0, "succeeded": [], "failed": []})
+        )
+        client.request(
+            "DELETE",
+            "/documents",
+            json={"ids": []},
+            headers=_auth(_valid_token(email="bob@co.com", role="admin")),
+        )
+        sent = route.calls[0].request.headers
+        assert sent["X-User-Email"] == "bob@co.com"
+        assert sent["X-User-Role"] == "admin"
+        assert "authorization" not in {k.lower() for k in sent.keys()}
+
+    @respx.mock
+    def test_reprocess_injects_identity(self, client):
+        route = respx.post(f"{_DOC_URL}/documents/reprocess").mock(
+            return_value=httpx.Response(200, json={"requested": 0, "succeeded": [], "failed": []})
+        )
+        client.post(
+            "/documents/reprocess",
+            json={"ids": []},
+            headers=_auth(_valid_token(email="bob@co.com", role="admin")),
+        )
+        sent = route.calls[0].request.headers
+        assert sent["X-User-Email"] == "bob@co.com"
+        assert sent["X-User-Role"] == "admin"
+        assert "authorization" not in {k.lower() for k in sent.keys()}
+
+
+class TestBulkDownstreamResponse:
+    @respx.mock
+    def test_partial_failure_is_a_200(self, client):
+        """A document that could not be deleted is reported in ``failed[]``."""
+        result = {
+            "requested": 2,
+            "succeeded": ["doc-1"],
+            "failed": [{"id": "doc-2", "name": "unknown", "reason": "Document not found"}],
+        }
+        respx.delete(f"{_DOC_URL}/documents").mock(
+            return_value=httpx.Response(200, json=result)
+        )
+        r = client.request(
+            "DELETE",
+            "/documents",
+            json={"ids": ["doc-1", "doc-2"]},
+            headers=_auth(_valid_token()),
+        )
+        assert r.status_code == 200
+        assert r.json()["failed"][0]["reason"] == "Document not found"
+
+    @respx.mock
+    def test_422_from_downstream_passes_through(self, client):
+        """document-service rejects a bodyless DELETE; the shape must survive."""
+        body = {"detail": [{"type": "missing", "loc": ["body"], "msg": "Field required"}]}
+        respx.delete(f"{_DOC_URL}/documents").mock(
+            return_value=httpx.Response(422, json=body)
+        )
+        r = client.request("DELETE", "/documents", headers=_auth(_valid_token()))
+        assert r.status_code == 422
+        assert r.json() == body
