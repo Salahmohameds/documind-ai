@@ -18,35 +18,29 @@ service behaves differently from what a case here assumes.
 
 ## Coverage
 
-169 automated tests across four services plus the end-to-end pipeline.
+193 automated tests across five services plus the end-to-end pipeline.
 
-| Suite                                | Tests | Needs                             |
-| ------------------------------------ | ----- | --------------------------------- |
-| `tests/integration/search_service`   | 18    | search-service                    |
-| `tests/integration/document_service` | 45    | document-service, postgres, redis |
-| `tests/integration/api_gateway`      | 26    | api-gateway                       |
-| `tests/integration/ai_service`       | 38    | ai-service                        |
-| `tests/integration/e2e`              | 21    | the full stack                    |
-| `tests/smoke`                        | 22    | any deployed environment          |
+| Suite                                | Tests | Needs                                         |
+| ------------------------------------ | ----- | --------------------------------------------- |
+| `tests/integration/search_service`   | 18    | search-service                                |
+| `tests/integration/document_service` | 45    | document-service, postgres, redis             |
+| `tests/integration/api_gateway`      | 44    | api-gateway, document-service, search-service |
+| `tests/integration/ai_service`       | 38    | ai-service                                    |
+| `tests/integration/e2e`              | 26    | the full stack                                |
+| `tests/smoke`                        | 22    | any deployed environment                      |
 
 Suites skip rather than fail when their target is unreachable, so any
-subset can run anywhere. Disruptive tests — those that stop containers
-or publish directly to Redis — are excluded from the default run and
-need `-m disruptive`.
+subset runs anywhere. Disruptive tests (stop containers, publish
+directly to Redis) need `-m disruptive`. Corpus accuracy needs
+`-m accuracy`.
 
 ## Blocked on
 
-- **Gateway proxying.** `api-gateway` authenticates and issues JWTs but
-  does not route to downstream services, so nothing behind it is
-  protected and its JWT middleware has never run against a real token.
 - **A real embedding backend.** `EMBEDDING_BACKEND=mock` is a hash chain
   with no semantic signal. Retrieval quality cannot be measured under
-  it, and any number produced would describe nothing.
-- **A cluster.** Everything about pods, autoscaling and rollback needs
-  OKE.
+  it, and any number produced would describe the hash function.
+- **A cluster.** Pods, autoscaling, rollback and the OKE load runs.
 - **The monolith.** No baseline, no owner — see §11.
-
----
 
 ## 1. Document upload
 
@@ -256,7 +250,7 @@ nothing else in the platform would detect that.
 ## 9. Auth
 
 | ID    | Case                                           | Expected                                     | Status |
-| ----- | ---------------------------------------------- | -------------------------------------------- | ------ |
+| ----- | ---------------------------------------------- | -------------------------------------------- | ------ | ------------------------------- | --- | --- |
 | AU-01 | Register a new user                            | 200, email echoed normalised                 | ✅     |
 | AU-02 | Duplicate email                                | 409, `field` is `email`                      | ✅     |
 | AU-03 | Malformed email                                | 422                                          | ✅     |
@@ -280,19 +274,59 @@ nothing else in the platform would detect that.
 | AU-21 | `X-Request-ID` echoed                          | Caller's id survives                         | ✅     |
 | AU-22 | `X-Request-ID` generated when absent           | Always present                               | ✅     |
 | AU-23 | Health probes need no token                    | 200                                          | ✅     |
-| AU-24 | Protected route without a token                | 401                                          | 🔒     |
-| AU-25 | Protected route with a malformed token         | 401                                          | 🔒     |
-| AU-26 | Protected route with an expired token          | 401                                          | 🔒     |
-| AU-27 | Protected route with a valid token             | 200                                          | 🔒     |
+| AU-24 | Protected route without a token                |                                              | AU-24  | Protected route without a token | 401 | ✅  |
+| AU-25 | Protected route with a garbage token           | 401                                          | ✅     |
+| AU-26 | Protected route with a forged signature        | 401                                          | ✅     |
+| AU-27 | Protected route with an expired token          | 401                                          | ✅     |
+| AU-28 | Protected route with a valid token             | Reaches the downstream service               | ✅     |
+| AU-29 | Upload requires a token                        | 401                                          | ✅     |
+| AU-30 | Token without the Bearer scheme                | 401                                          | ✅     |
+| AU-31 | Wrong auth scheme (Basic)                      | 401                                          | ✅     |
+| AU-32 | Proxied response keeps its envelope            | `rows` survives the hop                      | ✅     |
+| AU-33 | Downstream 404 is preserved                    | Not rewritten to 500                         | ✅     |
+| AU-34 | `X-Request-ID` survives the proxy hop          | Same id end to end                           | ✅     |
 
 AU-12 matters more than it looks. If a wrong password and an unknown
 account produce different responses, login becomes an account
-enumerator. Both currently return an identical 401 with identical text.
+enumerator. Both return an identical 401 with identical text.
+
+**AU-26 is the one that matters most.** Anyone can mint claims; only
+the issuer can sign them. A token with a bogus signature is rejected —
+had it been accepted, a caller could grant themselves any identity or
+role, and authentication would be decorative.
 
 AU-18 matters because there is no revocation. An unbounded token stays
 usable indefinitely if it leaks.
 
-## 10. End-to-end and failure modes
+## 10b. Corpus accuracy
+
+Measured by uploading all 50 generated documents through the full
+pipeline and comparing results to the ground truth they were built
+from.
+
+| ID    | Metric                                      | Result       |
+| ----- | ------------------------------------------- | ------------ |
+| AC-01 | Documents reaching a terminal state         | 50/50        |
+| AC-02 | Completion rate                             | 50/50 = 100% |
+| AC-03 | Classification accuracy                     | 50/50 = 100% |
+| AC-04 | Classification produces more than one label | Yes          |
+| AC-05 | Completed documents indexed and retrievable | 50/50 = 100% |
+
+**These numbers measure the rule set, not a model.** The mock backend
+is rules-based and deterministic rather than random, so they are real
+and repeatable — but they are not a claim about OCI Generative AI.
+Re-run against a real provider before quoting anything.
+
+Retrieval coverage is measured across six different queries. A single
+query capped at `top_k` returns the best-matching chunks, not every
+chunk, so a correctly indexed document can miss the cut — a
+single-query version reported 94% for a corpus that was fully indexed.
+
+Per-field extraction accuracy and PII recall are specified but not
+automated: they are worth measuring against a real provider, not
+against the rule set.
+
+## 11. End-to-end and failure modes
 
 | ID     | Case                                           | Expected                                      | Status |
 | ------ | ---------------------------------------------- | --------------------------------------------- | ------ |
@@ -332,7 +366,7 @@ is separate from the message-id idempotency described in the README,
 which works correctly — the gap is that there is no protection at the
 document level.
 
-## 11. Performance
+## 12. Performance
 
 | ID    | Case                     | Expected                                     | Status |
 | ----- | ------------------------ | -------------------------------------------- | ------ |
