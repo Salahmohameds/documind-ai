@@ -109,6 +109,7 @@ function buildDashboard(all: DocumentSummary[], range: DateRange): Dashboard {
     exceptions: exceptionBreakdown(failedNow),
     gauge: riskGauge(scored),
     series: volumeSeries(current, days, now),
+    axis: axisLabels(days, now),
     volume: current.length,
     generatedAt: new Date(now).toLocaleString("en-GB", {
       month: "short",
@@ -194,6 +195,35 @@ function riskGauge(scored: DocumentSummary[]): Dashboard["gauge"] {
  * Bucketed on calendar-day boundaries derived from `now`, so the rightmost
  * point is always today and the series lines up with the range label.
  */
+/** How many ticks the x-axis shows, whatever the range. */
+const AXIS_TICKS = 7;
+
+/**
+ * Tick labels for the volume chart, evenly spaced across the window.
+ *
+ * Derived from the same `days` and `now` the buckets are, because a label that
+ * is computed independently of the data it sits under will eventually disagree
+ * with it — which is exactly what happened: the axis was a hardcoded list of
+ * dates that read the same whether the range was 7 days or 90.
+ *
+ * The last tick is always today, since that is the bucket the newest documents
+ * land in and the one a reader looks at first.
+ */
+function axisLabels(days: number, now: number): string[] {
+  const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+  const ticks = Math.min(AXIS_TICKS, days);
+
+  return Array.from({ length: ticks }, (_, i) => {
+    // Spread across the window so the first tick is the oldest day plotted and
+    // the last is today, rather than sampling every nth day and stopping short.
+    const daysAgo = Math.round(((ticks - 1 - i) * (days - 1)) / Math.max(1, ticks - 1));
+    return new Date(startOfToday - daysAgo * DAY_MS).toLocaleDateString("en-GB", {
+      month: "short",
+      day: "2-digit",
+    });
+  });
+}
+
 function volumeSeries(docs: DocumentSummary[], days: number, now: number): Dashboard["series"] {
   const startOfToday = new Date(now).setHours(0, 0, 0, 0);
 

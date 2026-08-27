@@ -130,6 +130,14 @@ export type Dashboard = {
    * rather than plotted as a flat line at zero.
    */
   series: { name: string; counts: number[] }[];
+  /**
+   * Tick labels for the volume chart's x-axis, oldest first.
+   *
+   * Computed server-side from the same window the buckets came from, so a tick
+   * always names the day its position actually plots. Deriving them separately
+   * in the view is how they came to be a hardcoded list of dates in July.
+   */
+  axis: string[];
   /** Documents uploaded inside the selected window — drives the empty state. */
   volume: number;
   generatedAt: string;
