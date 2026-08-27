@@ -366,7 +366,7 @@ is separate from the message-id idempotency described in the README,
 which works correctly — the gap is that there is no protection at the
 document level.
 
-## 11. Performance
+## 12. Performance
 
 | ID    | Case                     | Expected                                     | Status |
 | ----- | ------------------------ | -------------------------------------------- | ------ |
