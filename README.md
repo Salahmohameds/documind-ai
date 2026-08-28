@@ -10,12 +10,22 @@ Ejada Egypt Summer Internship 2026 — Cloud Build (OCI & Terraform track)
 
 ## Read this first
 
+**[docs/README.md](docs/README.md)** — the documentation index. Start there for
+anything beyond this page.
+
 **[docs/PROJECT-PROPOSAL.md](docs/PROJECT-PROPOSAL.md)** — the complete,
 authoritative project document: objective, scope/non-goals, AI features,
 5-service architecture, OCI network & security design, Kubernetes design,
 CI/CD, observability, migration phases M0–M5, testing methodology, cost/DR
 approach, validation matrix, open decisions, and the Week-0 pre-flight
 checklist.
+
+**[docs/validation/DOCUMIND_OCI_FINAL_DEPLOYMENT_VALIDATION.docx](docs/validation/DOCUMIND_OCI_FINAL_DEPLOYMENT_VALIDATION.docx)** —
+the final deployment validation report: the burst happened, this is what is
+actually live in OCI right now, verified section by section against the real
+cluster and registry — architecture, Terraform modules, every Kubernetes
+resource, security posture, internal/public connectivity, an end-to-end
+functional test, and the one remaining open finding with its exact root cause.
 
 ## Quick facts
 
@@ -43,9 +53,14 @@ burst (~4–5 days)** — apply → deploy → test → capture all evidence →
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| A — Prepare (W0–W4) | Pre-flight · monolith baseline · 5 services on compose · deploy-ready (kind-rehearsed, images in OCIR, TF plan reviewed) | **W0 in progress** |
-| B — Burst (W5, ~5 days) | terraform apply → deploy → full validation → evidence capture → destroy + verify empty | Pending |
-| C — Deliver (W6–W8) | Perf/cost analysis from burst numbers · docs · ADRs · presentation · video | Pending |
+| A — Prepare | Pre-flight · monolith baseline · services on compose · deploy-ready (images in OCIR, TF plan reviewed) | **Done** |
+| B — Burst | terraform apply → deploy → full validation → evidence capture | **Done — see [final validation report](docs/validation/DOCUMIND_OCI_FINAL_DEPLOYMENT_VALIDATION.docx)** |
+| C — Deliver | Perf/cost analysis · docs · ADRs · presentation | **In progress** |
+
+5 of 6 services are live and verified on OKE, publicly reachable, with one
+precisely-diagnosed open item (an unapplied Terraform IAM policy — see the
+final validation report's §5.5/§14/§27). Destroy-and-verify-empty has not yet
+been run for this burst.
 
 ## Team
 
